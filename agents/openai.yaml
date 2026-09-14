@@ -1,0 +1,6 @@
+interface:
+  display_name: "HTML AI 视频工作流"
+  short_description: "自动研究、配音、套用十种网页模板并生成字幕视频"
+  default_prompt: "Use $html-video-workflow to research a topic and render a narrated HTML video."
+policy:
+  allow_implicit_invocation: true

@@ -1,0 +1,81 @@
+{
+  "title": "2026 美国留学：别先看排名",
+  "subtitle": "用一个五维模型，选出真正适合你的学校",
+  "author": "BUBBLE · AI VIDEO LAB",
+  "language": "zh-CN",
+  "voice": {
+    "engine": "sapi",
+    "name": "",
+    "rate": 1
+  },
+  "sources": [
+    {
+      "title": "EducationUSA — Research Your Options",
+      "url": "https://educationusa.state.gov/your-5-steps-us-study/research-your-options"
+    },
+    {
+      "title": "EducationUSA — Narrow Your Options",
+      "url": "https://educationusa.state.gov/your-5-steps-us-study/research-your-options/undergraduate/research-and-narrow-your-options"
+    },
+    {
+      "title": "DHS Study in the States — School Search",
+      "url": "https://studyinthestates.dhs.gov/school-search"
+    }
+  ],
+  "scenes": [
+    {
+      "eyebrow": "01 / 先换问题",
+      "title": "最好的学校，不等于最适合你的学校",
+      "body": "官方建议从个人目标、学术需求、预算与生活偏好出发，而不是寻找一个所谓“官方总排名”。",
+      "narration": "申请美国学校，第一步不该是抄一张排名表。Education USA 明确提醒，美国没有官方的高校排名体系。真正重要的问题是：哪所学校最符合你的学术、财务和个人需求？",
+      "tags": ["目标", "匹配度", "拒绝唯排名"],
+      "metric": "FIT",
+      "metric_label": "匹配度优先"
+    },
+    {
+      "eyebrow": "02 / 五维模型",
+      "title": "用五个维度，建立自己的选择模型",
+      "body": "专业资源 30% · 总成本 25% · 录取概率 20% · 地点与生活 15% · 职业支持 10%",
+      "narration": "你可以先用一个简单的五维模型。专业资源权重百分之三十，总成本百分之二十五，录取概率百分之二十，地点和生活百分之十五，职业支持百分之十。权重不是标准答案，要按照你的真实目标调整。",
+      "tags": ["可解释评分", "权重可调", "不替代判断"],
+      "metric": "5D",
+      "metric_label": "五维决策"
+    },
+    {
+      "eyebrow": "03 / 时间线",
+      "title": "把搜索提前到入学前 12–18 个月",
+      "body": "先确认项目、预算与截止日期，再倒推考试、文书、推荐信和签证准备。",
+      "narration": "时间也是选择模型的一部分。Education USA 建议，在计划入学前十二到十八个月开始研究。因为申请和资助截止日期，会反过来影响考试、材料和推荐信的安排。",
+      "tags": ["截止日期", "倒排计划", "提前研究"],
+      "metric": "12–18",
+      "metric_label": "个月准备期"
+    },
+    {
+      "eyebrow": "04 / 硬门槛",
+      "title": "先验证学校能否接收 F-1 学生",
+      "body": "对国际学生而言，学校是否通过 SEVP 认证是基础筛选条件；可在 DHS 官方 School Search 核验。",
+      "narration": "在做精细比较之前，先过一道硬门槛。国际学生申请的学校，需要具备相应的 SEVP 认证。你可以使用美国国土安全部 Study in the States 的学校搜索工具进行核验。",
+      "tags": ["SEVP", "F-1", "官方核验"],
+      "metric": "CHECK",
+      "metric_label": "先查资质"
+    },
+    {
+      "eyebrow": "05 / 组合策略",
+      "title": "名单不是一条线，而是三个篮子",
+      "body": "冲刺、匹配、稳妥分别设置数量；每一所都必须满足预算底线和项目底线。",
+      "narration": "最终名单不要只按分数从高到低排成一条线。把学校放进冲刺、匹配和稳妥三个篮子，同时给所有学校设置预算底线、项目底线和资质底线。这样才能控制风险。",
+      "tags": ["冲刺", "匹配", "稳妥"],
+      "metric": "3",
+      "metric_label": "类申请组合"
+    },
+    {
+      "eyebrow": "06 / 下一步",
+      "title": "先写优先级，再打开学校搜索页",
+      "body": "列出三项不能妥协的条件，给五个维度分配 100% 权重，然后再开始收集学校。",
+      "narration": "现在就做三件事。写下三项不能妥协的条件；给五个维度分配总计百分之百的权重；再用学校官网和官方数据库建立候选名单。先定义你自己，选择才真正开始。",
+      "tags": ["今天可执行", "建立表格", "保留来源"],
+      "metric": "START",
+      "metric_label": "从优先级开始"
+    }
+  ]
+}
