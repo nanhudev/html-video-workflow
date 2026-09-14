@@ -1,21 +1,44 @@
-# HTML Video Workflow / HTML 视频流水线
+# HTML Video Workflow
 
-从资料研究到成片输出的一体化短视频工具链：结构化脚本、可追溯来源、十套 HTML/CSS 视觉模板、MOSS-TTS 或 Windows SAPI 旁白，以及 FFmpeg 合成。
+English | [简体中文](#简体中文)
 
-An end-to-end short-video pipeline covering sourced research, structured scripts, ten HTML/CSS visual templates, MOSS-TTS or Windows SAPI narration, and FFmpeg composition.
+A reusable, local-first pipeline for turning sourced research into narrated short videos. It keeps the production process explicit: source collection, structured scene planning, HTML/CSS rendering, local speech synthesis, and final FFmpeg composition.
 
-## Pipeline / 流程
+## Why this project
 
-1. Research allowed pages and preserve source URLs / 研究允许抓取的页面并保留来源。
-2. Plan scenes into a validated JSON project / 生成并校验场景 JSON。
-3. Synthesize narration locally / 本地合成旁白。
-4. Render HTML/CSS frames / 渲染 HTML/CSS 画面。
-5. Compose the final MP4 with FFmpeg / 使用 FFmpeg 合成 MP4。
+Most automated video demos hide their decisions inside a single script. This project uses a validated JSON project file as the hand-off between research, writing, narration, visuals, and rendering. Each stage can be reviewed, replaced, or automated independently.
 
-See `SKILL.md` for commands and safety guardrails. See `references/project-schema.md` for the project format.
+## What it includes
 
-命令与安全规则见 `SKILL.md`，项目数据结构见 `references/project-schema.md`。
+- Source-aware research and script planning
+- A documented JSON schema for scenes and citations
+- Ten reusable HTML/CSS visual templates
+- Narration through MOSS-TTS-Nano or Windows SAPI
+- Frame rendering and MP4 composition with FFmpeg
+- A Codex skill definition for repeatable agent-driven runs
+
+## Workflow
+
+1. Collect allowed source material and preserve its URLs.
+2. Build and validate a structured video project.
+3. Generate narration locally.
+4. Render each scene with an HTML/CSS template.
+5. Compose the final video with FFmpeg.
+
+Start with [`SKILL.md`](SKILL.md) for the complete workflow and safety rules. The project format is documented in [`references/project-schema.md`](references/project-schema.md), and [`assets/demo-us-study-2026.json`](assets/demo-us-study-2026.json) provides a working example.
+
+## Requirements
+
+Python 3.11+, a Chromium-compatible browser for HTML rendering, and FFmpeg. Windows SAPI is available as a zero-download narration fallback on Windows.
 
 ## License
 
 MIT
+
+## 简体中文
+
+这是一个可复用、以本地运行为主的短视频生产流水线，可将带来源的研究资料转换为有旁白的成片。流程由资料收集、结构化分镜、HTML/CSS 渲染、本地语音合成和 FFmpeg 合成组成。
+
+它的重点不是把所有步骤藏进一个脚本，而是用经过校验的 JSON 项目文件连接研究、写作、旁白、画面与渲染。每个阶段都可以独立检查、替换或自动化。
+
+主要能力包括十套 HTML/CSS 视觉模板、MOSS-TTS-Nano 或 Windows SAPI 旁白、引用来源保留，以及 FFmpeg 成片合成。完整命令与安全规则见 [`SKILL.md`](SKILL.md)，项目格式见 [`references/project-schema.md`](references/project-schema.md)。
