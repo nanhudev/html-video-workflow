@@ -213,12 +213,23 @@ documents rather than the code:
 
 | Where | Result |
 | --- | --- |
-| Local, Windows, full suite | **337 tests, 0 failures, 0 errors, 0 skipped** (`--junitxml`, ~13 min) |
+| Local, Windows, full suite (final) | **348 tests, 0 failures, 0 errors, 0 skipped** (`--junitxml`, ~14 min) |
+| Local, Windows, full suite (before §8b's fixes) | 338 tests, 0 failures, 0 errors, 0 skipped |
 | CI, `tests/test_phase3_product.py` | **pass** |
+| CI, all 18 jobs (`ff4784c`) | **pass** |
 
 The local number is read from the junit report, not the console: this runner
 kills long-lived child processes, so a console summary line is not trustworthy
-here. The run that produced 337 also produced the two failures below — both are
+here — and the process exit code is misleading for the same reason. A full run
+ends with the shell's bulk-delete guard refusing pytest's own temp-directory
+cleanup, so the shell reports `exit 1` **after** every test has passed. Reading
+the exit code instead of the junit report would call a green suite red.
+
+Ten tests were added alongside the §8b fixes; none was written to make a failure
+disappear, and the one existing test that had to change had its contract
+replaced deliberately rather than relaxed.
+
+The run that produced 338 also produced the two failures below — both are
 worth recording, because one was a real defect the new tests found and the other
 was a bug in the test itself.
 
@@ -277,6 +288,26 @@ now structurally impossible to skip, and `e2e_entry_points.py` does the same for
 the SDK, REST and MCP surfaces.
 
 That combination produced the exact list in §8 without ever opening the log.
+
+### The run that went green
+
+`ff4784c` — the commit that fixed the two defects §8b describes — finished with
+**all 18 jobs green** (run `34997864283`), including the job that had been red:
+
+```
+e2e/cli      success  239854 bytes, 8.88s
+e2e/sdk      success  positional prompt -> 239854 bytes
+e2e/rest     success  wait=true -> MP4; wait=false -> job_…; unknown job -> 404
+e2e/mcp      success  6 tools; create_video produced …mp4
+```
+
+Two things are worth reading out of that. First, the CLI entry point succeeded on
+its **first** attempt: no `e2e/cli/died` status and no `e2e/cli-mock-tts` retry
+were posted, so the documented command worked as documented rather than only
+working with a pinned placeholder voice. Second, the SDK, REST and MCP statuses
+had been green all along — during the two commits when the job was red — which is
+what localised the fault to the CLI's reporter rather than the pipeline. That
+distinction was available only because each entry point reports separately.
 
 ---
 
@@ -418,12 +449,17 @@ missing.
 
 ## 10. Next
 
-1. Confirm the one-click E2E goes green on `windows-latest` with both defects
-   fixed, then merge `phase3-productization` into `main` — only when CI, the
-   package build, the Studio build and the one-click E2E are all green.
+1. Merge `phase3-productization` into `main`. It is an 18-commit fast-forward of
+   `54f0e15` — the branch is strictly ahead with no divergence, so no conflicts
+   are possible — and every gate is green: CI, the package build, the Studio
+   build and the one-click E2E across all four entry points.
 2. Close the loop on critic findings — let a finding change a layout, starting
-   with `AA-012`.
+   with `AA-012` ("nothing moves continuously", which fires on every scene
+   because the motion chooser never reaches `parallax`/`drift`).
 3. Promote "no provider can speak the requested language" to the same
    first-class warning the placeholder case now has.
-4. Validate on real hardware — the RTX 2070 path, and a neural TTS engine —
+4. Recalibrate `estimate_speech_seconds` (measured 1.75× optimistic against
+   `sapi`) and re-derive the scene timings and the mock tone lengths that depend
+   on it. See `docs/API.md` §6.
+5. Validate on real hardware — the RTX 2070 path, and a neural TTS engine —
    which CI cannot do by design.
