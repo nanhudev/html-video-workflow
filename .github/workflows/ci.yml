@@ -23,6 +23,13 @@ name: CI
 # there — is what counts. No `|| true`, no `continue-on-error`, no skipping a
 # failing test to manufacture a green tick.
 
+# `statuses: write` is what lets a failing job publish *which* test broke as a
+# commit status — the only CI output readable without a browser session or a
+# personal token.
+permissions:
+  contents: read
+  statuses: write
+
 on:
   push:
     branches: ["main", "phase3-productization"]
@@ -125,8 +132,14 @@ jobs:
                        "Accept": "application/vnd.github+json",
                        "Content-Type": "application/json"},
               method="POST")
-          with urllib.request.urlopen(request) as response:  # noqa: S310
-              print("status posted:", response.status)
+          try:
+              with urllib.request.urlopen(request) as response:  # noqa: S310
+                  print("status posted:", response.status)
+          except urllib.error.HTTPError as exc:
+              # Surface the body: a 403 here means the token lacks
+              # `statuses: write`, which is invisible otherwise.
+              print("status post failed:", exc.code, exc.read()[:300])
+              raise
           PY
 
       - name: Upload the test record
