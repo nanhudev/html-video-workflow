@@ -449,10 +449,10 @@ missing.
 
 ## 10. Next
 
-1. Merge `phase3-productization` into `main`. It is an 18-commit fast-forward of
-   `54f0e15` — the branch is strictly ahead with no divergence, so no conflicts
-   are possible — and every gate is green: CI, the package build, the Studio
-   build and the one-click E2E across all four entry points.
+1. ~~Merge `phase3-productization` into `main`.~~ **Done** as the fast-forward
+   `54f0e15..4f10937` — 19 commits, no divergence, no conflicts possible. Every
+   gate was green first: CI, the package build, the Studio build and the
+   one-click E2E across all four entry points.
 2. Close the loop on critic findings — let a finding change a layout, starting
    with `AA-012` ("nothing moves continuously", which fires on every scene
    because the motion chooser never reaches `parallax`/`drift`).
