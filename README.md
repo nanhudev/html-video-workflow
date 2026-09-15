@@ -2,32 +2,72 @@
 
 English | [简体中文](#简体中文)
 
-A reusable, local-first pipeline for turning sourced research into narrated short videos. It keeps the production process explicit: source collection, structured scene planning, HTML/CSS rendering, local speech synthesis, and final FFmpeg composition.
+**One prompt in. A complete MP4 out.**
+
+A local-first, agentic video runtime for turning sourced research into narrated short videos. One call runs the whole pipeline — source, topic, template, style, script, storyboard, render, voice, composition and quality control — and hands back a real MP4 plus the reasons for every decision it made.
+
+```bash
+html-video generate "Why local AI matters" -o result.mp4
+```
+
+```python
+from html_video_workflow import create_video
+
+result = create_video("Why local AI matters", output="result.mp4")
+```
+
+```http
+POST /v1/videos   {"prompt": "Why local AI matters", "duration_sec": 45}
+```
+
+```text
+MCP: create_video(prompt="Why local AI matters")
+```
+
+Four entry points, one implementation. The CLI, the Python SDK, the REST API and
+the MCP server all build the same `CreateVideoRequest` and call
+`VideoRuntime.create_video()` — so no capability can exist in one entry point
+and not another. The Studio GUI calls the same method.
 
 ## Why this project
 
-Most automated video demos hide their decisions inside a single script. This project uses a validated JSON project file as the hand-off between research, writing, narration, visuals, and rendering. Each stage can be reviewed, replaced, or automated independently.
+Most automated video demos hide their decisions inside a single script, and the
+result is a video you cannot interrogate: why *this* template, why *that*
+length, why is it 32 seconds when you asked for 20. This project keeps every
+decision in the open. Each result carries `reasons`, `warnings` and `fallbacks`;
+a degradation is always recorded, never silent.
 
 ## What it includes
 
-- Source-aware research and script planning
-- A documented JSON schema for scenes and citations
-- Ten reusable HTML/CSS visual templates
-- Narration through MOSS-TTS-Nano or Windows SAPI
-- Frame rendering and MP4 composition with FFmpeg
-- A Codex skill definition for repeatable agent-driven runs
+- **One-click generation** from a prompt, a topic, a script or a source document
+- **Sources** — web pages, GitHub repos, Markdown, local files, plain text
+- **Planning** — topic suggestion, template selection, style selection, script
+  and storyboard, each with a stated reason
+- **Templates and styles** — the structure of the argument and the skin are
+  independent choices
+- **A renderer-neutral IR (V2)** — layers carry `{type, role, content, layout,
+  motion}` and never name a renderer or a CSS class
+- **Honest providers** — a `ProviderSpec` is a claim, a probe is the check, and
+  a capability can only be confirmed or downgraded
+- **Local speech** — MOSS-TTS-Nano or Windows SAPI, chosen by probe
+- **FFmpeg composition and QC** — measured on the real file, not asserted
+- **Agent-ready** — a Skill, an MCP server and a versioned REST API
 
 ## Workflow
 
-1. Collect allowed source material and preserve its URLs.
-2. Build and validate a structured video project.
-3. Generate narration locally.
-4. Render each scene with an HTML/CSS template.
-5. Compose the final video with FFmpeg.
+1. Give it a prompt (or a source to ground it in).
+2. It plans: topic, template, style, script, storyboard.
+3. It renders each scene and synthesises the narration.
+4. It composes the MP4 and measures it.
+5. You read `reasons`, `warnings` and `fallbacks` and know exactly what you got.
 
-Start with [`SKILL.md`](SKILL.md) for the complete workflow and safety rules. The project format is documented in [`references/project-schema.md`](references/project-schema.md), and [`assets/demo-us-study-2026.json`](assets/demo-us-study-2026.json) provides a working example.
+Start with [`QUICKSTART.md`](QUICKSTART.md) for the five-minute path, or
+[`docs/API.md`](docs/API.md) for the full contract. Agents should read
+[`SKILL.md`](SKILL.md).
 
-The legacy entry points above are unchanged and remain fully functional.
+The legacy entry points (`scripts/workflow.py`, project JSON, the ten HTML/CSS
+templates) are unchanged and remain fully functional — use them to repair an
+existing project, not to make a new video.
 
 ## Architecture Foundation
 
