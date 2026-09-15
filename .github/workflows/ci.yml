@@ -69,6 +69,12 @@ jobs:
       - name: Confirm the console entry point is installed
         run: html-video --help
 
+      # Separate step so a red build says *which* phase broke: a collection
+      # error (bad import on this platform) and a real assertion failure look
+      # identical if they land in the same step.
+      - name: Collect tests
+        run: python -m pytest tests --collect-only -q
+
       # The suite summary is the deliverable. `-q` alone has been seen to print
       # no summary line under a constrained runner, so the junit report is the
       # record and the job fails on any failure/error it contains.
