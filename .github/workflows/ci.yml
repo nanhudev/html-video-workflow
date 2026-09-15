@@ -62,6 +62,13 @@ jobs:
         run: |
           echo "files=$(python -c 'import glob, json; print(json.dumps(sorted(glob.glob("tests/test_*.py"))))')" >> "$GITHUB_OUTPUT"
 
+      # Canary: proves commit-status reporting works *before* a build needs it.
+      # If this ever disappears, the failure reports are silently lost.
+      - name: Verify status reporting works
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python scripts/ci_status.py "ci/status-reporting" success "reporting online"
+
   pytest:
     name: ${{ matrix.file }}
     needs: discover
@@ -310,10 +317,17 @@ jobs:
           retention-days: 7
 
   one-click:
+    # Runs on Windows on purpose. The renderer drives Edge and the local voice
+    # path is SAPI, so this is the platform the product actually targets — a
+    # Linux runner would be testing a browser stack nobody ships.
     name: One-click E2E (CLI, SDK, REST, MCP)
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     needs: python
     timeout-minutes: 25
+
+    defaults:
+      run:
+        shell: bash
 
     steps:
       - uses: actions/checkout@v4
