@@ -1,7 +1,10 @@
 """Hardware profiling and routing explainability."""
 from __future__ import annotations
 
+import sys
 from pathlib import Path
+
+import pytest
 
 from html_video_workflow.hardware.profile import probe_hardware
 from html_video_workflow.pipeline.router import plan_pipeline, rank, resolve_preset
@@ -80,6 +83,10 @@ def test_unknown_language_can_still_route() -> None:
     assert decision.candidates
 
 
+@pytest.mark.skipif(
+    not sys.platform.startswith("win"),
+    reason="drive-letter normalisation (/d/x -> D:/x) is a Windows concern; "
+           "on POSIX a leading slash already means what it says")
 def test_home_env_accepts_windows_posix_and_gitbash_paths() -> None:
     """`HVW_HOME` must not silently become a relative directory.
 

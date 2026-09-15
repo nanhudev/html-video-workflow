@@ -93,6 +93,26 @@ def test_low_fidelity_is_read_from_spec_tags() -> None:
     assert not _is_low_fidelity(_Provider(), Capability(id="x", type=ProviderType.TTS))
 
 
+def _real_tts_available() -> bool:
+    """Is there a TTS engine here that is not a placeholder?
+
+    The claim under test is "a fidelity preset must not pick the mock". That
+    only means something when a real engine exists to be picked instead — on a
+    machine whose only engine *is* the mock (Linux has no SAPI), choosing it is
+    the correct answer, and skipping is honest where passing would be a lie.
+    """
+    from html_video_workflow.providers.registry import capabilities
+
+    return any(cap.available and cap.type == ProviderType.TTS
+               and cap.id != "mock_tts" for cap in capabilities())
+
+
+needs_real_tts = pytest.mark.skipif(
+    not _real_tts_available(),
+    reason="no non-placeholder TTS engine is available on this machine")
+
+
+@needs_real_tts
 @pytest.mark.parametrize("preset", ["high_quality", "max_quality"])
 def test_quality_presets_never_choose_a_placeholder(preset: str) -> None:
     """A fidelity preset must not resolve to a mock engine.

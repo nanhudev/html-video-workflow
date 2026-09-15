@@ -58,6 +58,11 @@ def test_mock_voice_stage_produces_audio() -> None:
 
 def test_mock_render_stage_produces_png() -> None:
     ctx = _context(_project())
+    # Pin the renderer. The claim is about the render *stage* contract, and
+    # letting the router choose makes it depend on which browser happens to
+    # exist on the machine — on CI that turned a stage test into a browser
+    # test. The browser-dependent path has its own test below.
+    ctx.job.plan.renderer = "mock_renderer"
     images = stage_render(ctx)
     assert images
     for image in images:
