@@ -100,7 +100,7 @@ class MOSSProvider(TTSProvider):
 
         started = time.perf_counter()
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+            result = subprocess.run(cmd, capture_output=True, text=True, errors="replace", timeout=600)
         except subprocess.TimeoutExpired as exc:
             raise ProviderTimeout(
                 "MOSS synthesis timed out", provider=self.id, fallback="sapi"

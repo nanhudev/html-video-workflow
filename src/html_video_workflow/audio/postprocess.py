@@ -315,7 +315,7 @@ class AudioQualityChecker:
     @staticmethod
     def _run(cmd: list[str]) -> subprocess.CompletedProcess[str] | None:
         try:
-            return subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            return subprocess.run(cmd, capture_output=True, text=True, errors="replace", timeout=300)
         except (OSError, subprocess.SubprocessError) as exc:
             log.debug("audio probe failed: %s", exc)
             return None

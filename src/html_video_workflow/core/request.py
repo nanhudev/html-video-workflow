@@ -174,6 +174,15 @@ class CreateVideoRequest(BaseModel):
     voice: str | None = None
     captions: bool = True
 
+    # ------------------------------------------------------------- writing
+    #: How the narration should read. See ``templates/builtins/presets.json``.
+    writing_preset: str | None = Field(
+        default=None, description="Writing preset id, e.g. 'popular_science'")
+    #: Free text added to the preset's brief. Ignored by the rule writer, which
+    #: cannot be briefed — the API says so in ``reasons`` when that happens.
+    writing_notes: str | None = Field(
+        default=None, description="Extra writing instructions for the model")
+
     # ------------------------------------------------------------- routing
     preset: RoutePreset = "auto"
     llm: str | None = None
@@ -264,6 +273,14 @@ class VideoResult(BaseModel):
     template: str | None = None
     style: str | None = None
     title: str | None = None
+
+    #: ``llm`` / ``rule`` / ``user`` — who actually wrote the narration. Reported
+    #: as a fact rather than inferred from ``providers``: the routed LLM can be
+    #: selected and still not have written a word, and the difference is exactly
+    #: what a user paying for an API key needs to see.
+    narration_source: str | None = None
+    #: Which writing preset was in force, if any.
+    writing_preset: str | None = None
 
     #: Which provider actually ran each stage.
     providers: dict[str, str] = Field(default_factory=dict)

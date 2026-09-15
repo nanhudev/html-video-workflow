@@ -14,7 +14,7 @@ One prompt in, one MP4 out::
 """
 from __future__ import annotations
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 
 def _as_request(model, args: tuple, kwargs: dict):

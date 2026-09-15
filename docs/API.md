@@ -1,16 +1,21 @@
 # API
 
-One video pipeline, four entry points. All four construct the same
+One video pipeline, five entry points. All five construct the same
 `CreateVideoRequest` and call the same `VideoRuntime.create_video()`. There is
 no per-entry-point implementation, so a capability cannot exist in one place
 and not another.
 
 ```
 CLI  ─┐
-SDK  ─┼──▶  CreateVideoRequest  ──▶  VideoRuntime.create_video()  ──▶  VideoResult
-REST ─┤
-MCP  ─┘
+SDK  ─┤
+REST ─┼──▶  CreateVideoRequest  ──▶  VideoRuntime.create_video()  ──▶  VideoResult
+MCP  ─┤
+GUI  ─┘
 ```
+
+The GUI is the wizard in `apps/studio/src/wizard/`, served by the same process as
+the REST API. Its extra endpoints (`/v1/setup`, `/v1/outputs`, `/v1/desktop`)
+configure a key and deliver a file — they do not render anything themselves.
 
 ---
 
@@ -56,10 +61,15 @@ html-video generate "Why local AI matters"
 html-video generate "..." --out out --platform youtube_shorts_9x16 --duration 30
 html-video generate "..." --source https://example.com/article
 html-video generate "..." --template data_story --style blueprint
+html-video generate "..." --writing-preset popular_science --writing-notes "多用类比"
 html-video generate "..." --dry-run          # plan only
 html-video generate "..." --no-wait --json   # job id, machine-readable
 html-video generate "..." --width 320 --height 180   # fast smoke render
 ```
+
+`html-video` with no arguments is `html-video start`: it creates the data
+directory layout, serves the wizard and opens the browser. That is what the
+packaged `html-video.exe` does when double-clicked.
 
 | Flag | Meaning |
 | --- | --- |
@@ -69,6 +79,8 @@ html-video generate "..." --width 320 --height 180   # fast smoke render
 | `--duration` | target seconds |
 | `--scenes` | target scene count (clamped to the template's range) |
 | `--template` / `--style` | force a choice; a forced mismatch is recorded in `reasons` |
+| `--writing-preset` | a writing preset id (see `html-video presets`) — an unknown id is an error, never a silent default |
+| `--writing-notes` | free-form brief for the writer; only reaches the words when a model is attached |
 | `--dry-run` | plan and build the IR, do not render |
 | `--strict` | treat a QC failure as an error |
 | `--json` | machine-readable result |
@@ -96,6 +108,8 @@ Body is a `CreateVideoRequest`. Query `?wait=true|false` overrides the body's
   "language": "zh-CN",
   "template": null,
   "style": null,
+  "writing_preset": "popular_science",
+  "writing_notes": "多用类比，少用术语",
   "out_dir": null,
   "wait": true,
   "dry_run": false,
@@ -104,7 +118,15 @@ Body is a `CreateVideoRequest`. Query `?wait=true|false` overrides the body's
 ```
 
 `wait=true` (default) blocks and returns the finished `VideoResult`.
-`wait=false` returns immediately with `job_id` and `status`.
+`wait=false` returns immediately with `job_id` and `status`. **Both carry the same
+shape** — a polled result is not a thinner one. `template`, `style`, `title`,
+`scenes`, `duration_sec`, `narration_source` and `writing_preset` are recorded on
+the job before the run starts, precisely so a polling caller sees what a blocking
+caller saw.
+
+`narration_source` is the provenance of the words: `rule`, `llm`, or `user` (when
+a `script` was supplied). It is not decorative — two videos with identical beats
+are different products depending on this field, and the wizard shows it.
 
 ### Other endpoints
 
@@ -117,8 +139,49 @@ Body is a `CreateVideoRequest`. Query `?wait=true|false` overrides the body's
 | `GET` | `/v1/templates` | every template manifest, verbatim |
 | `GET` | `/v1/templates/{id}` | one manifest (404 when unknown) |
 | `GET` | `/v1/styles` | style profiles |
+| `GET` | `/v1/presets` | the eight writing presets |
+| `GET` | `/v1/presets/{id}` | one preset (404 when unknown) |
 | `GET` | `/v1/platforms` | platform presets |
 | `GET` | `/v1/topics/suggest?prompt=…&count=3` | ranked topic angles |
+
+### The wizard's own endpoints — `/v1/setup`, `/v1/outputs`, `/v1/desktop`
+
+These exist for the GUI. They are not a second product: `setup/llm` is how a key
+gets configured when the user does not have a terminal, and `outputs` is how a
+finished file reaches the browser instead of being a path the user has to find.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/v1/setup/status` | the self-check: `ready`, `blocking[]`, `items[]`, `llm` |
+| `POST` | `/v1/setup/llm` | save credentials, rebuild providers, **then probe** |
+| `POST` | `/v1/setup/llm/test` | probe credentials without keeping them |
+| `GET` | `/v1/outputs?limit=50` | finished videos, newest first, with thumbnails |
+| `GET` | `/v1/outputs/{filename}` | stream one back (`Accept-Ranges: bytes`) |
+| `POST` | `/v1/desktop/reveal` | show a file in the OS file manager, selected |
+| `POST` | `/v1/desktop/open` | open a file or folder with its default handler |
+
+Every `/v1/setup/status` item carries `id`, `label`, `state`, `state_label`,
+`detail`, `fix` and `required`. The contract the UI relies on:
+
+- a **required** item that is not `ready` must have a non-empty `fix` — a failure
+  without a fix instruction is a log line, not a user interface;
+- a `ready` item must have an **empty** `fix`, or the page reads as broken while
+  it is working;
+- `ready` is exactly `blocking == []`, and `blocking` is exactly the required
+  items that are not `ready`.
+
+`POST /v1/setup/llm` reports **`saved` and `configured` separately**. Storing a
+key that does not work is not a success, and returning a green tick for it is the
+kind of lie the user only discovers in the finished video. `api_key: ""` clears
+the stored key; `POST /v1/setup/llm/test` restores the previous environment
+afterwards, including on failure, so a test never silently becomes a save.
+
+`/v1/desktop/*` bodies are `{"path": "<absolute>"}`. The path must resolve inside
+`HVW_HOME` — symlinks and `..` are resolved before the comparison, so these
+endpoints are not a general-purpose file opener for anything else on the machine.
+A path outside the home is `403`; a path that does not exist is `404`; and a
+machine with no way to show a file at all (headless Linux without `xdg-open`) is
+`501` rather than a false "opened".
 
 ### Status codes
 
@@ -183,6 +246,8 @@ when it cannot.
 | `duration_sec` | float | **a target**, 5–1200 |
 | `scenes` | int | **a target**, clamped to the template's range |
 | `template` / `style` | string | force a choice |
+| `writing_preset` | string | **how it is written** — a preset id. Unknown is an error, never a silent default |
+| `writing_notes` | string | free-form brief layered on top of the preset |
 | `voice` | string | TTS voice |
 | `captions` | bool | default `true` |
 | `preset` | `auto`/`fast`/`balanced`/`high_quality`/`max_quality` | routing bias |
@@ -194,6 +259,29 @@ when it cannot.
 
 Whitespace-only intent is rejected: `"   "` carries no intent and would
 otherwise produce a video about nothing.
+
+### Template, style and writing preset are three different things
+
+| Concept | Field | Question it answers |
+| --- | --- | --- |
+| Template | `template` | what the video is **made of** — beats, layout slots, scene count |
+| Style | `style` | what it **looks like** — colour, type, spacing |
+| Writing preset | `writing_preset` | how it is **written** — who is talking, to whom, under which rules |
+
+They are independent on purpose: "教程步骤 in blueprint colours" is a
+combination, not a ninth template file. A preset recommends a template, style,
+duration and scene count, but never overrides what the caller explicitly asked
+for.
+
+A preset's main effect is the **system prompt** handed to the language model.
+Without a model attached — no API key, or a `low_fidelity` planner was the only
+candidate — a preset can only shade those recommendations, and the rules in
+`writing_notes` reach nothing. This is stated rather than implied: the plan
+carries the reason, `narration_source` reports `rule`, and the GUI warns before
+the render.
+
+Preset ids are a **separate namespace** from template ids. `data_story` exists in
+both: the preset "数据解读" recommends the template "Data Story".
 
 ### Source kinds
 

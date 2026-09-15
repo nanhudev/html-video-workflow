@@ -1,0 +1,145 @@
+name: Release
+
+# Produces the thing a person can actually download: a zip that runs on a
+# Windows machine with nothing installed. Pushing a tag publishes it as a
+# release asset; a manual run builds it and leaves it as an artifact, so the
+# packaging can be exercised without cutting a version.
+#
+# The bundle is smoke-tested *before* it is published. A release asset that
+# fails on first run is worse than no release: it is the first thing a new user
+# meets, and they will not file a bug, they will close the tab.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows-portable:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # windows-latest has no ffmpeg. The bundle ships its own copy, because
+      # "download our app" must not mean "then go install ffmpeg and fix PATH".
+      - name: Install ffmpeg
+        shell: pwsh
+        run: |
+          choco install ffmpeg --no-progress -y
+          ffmpeg -version | Select-Object -First 1
+          ffprobe -version | Select-Object -First 1
+
+      - name: Install build dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[api]"
+          python -m pip install pyinstaller
+
+      - name: Build the portable bundle
+        shell: pwsh
+        run: |
+          $bin = Split-Path (Get-Command ffmpeg.exe).Source
+          python scripts/pack_release.py --ffmpeg-bin $bin
+
+      # ------------------------------------------------------------ smoke test
+      - name: Smoke-test the frozen build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $app = "dist\release\pyi\html-video\html-video.exe"
+          if (-not (Test-Path $app)) { throw "no executable at $app" }
+
+          # A package manager's shim is a real, runnable executable, so every
+          # check below would pass on this machine and the zip would still be
+          # broken for everyone else. Only its size gives it away.
+          foreach ($tool in @("ffmpeg.exe", "ffprobe.exe")) {
+            $path = "dist\release\pyi\html-video\bin\$tool"
+            if (-not (Test-Path $path)) { throw "the bundle has no $tool" }
+            $mb = (Get-Item $path).Length / 1MB
+            Write-Host "$tool bundled: $([math]::Round($mb, 1)) MB"
+            if ($mb -lt 10) {
+              throw "$tool is only $([math]::Round($mb, 1)) MB - that is a shim, not ffmpeg"
+            }
+          }
+
+          Write-Host "--- doctor ---"
+          & $app doctor
+          if ($LASTEXITCODE -ne 0) { throw "doctor exited $LASTEXITCODE" }
+
+          Write-Host "--- bundled studio ---"
+          $env:HVW_HOME = "$env:RUNNER_TEMP\hvw-home"
+          $server = Start-Process -FilePath $app -ArgumentList "studio","--port","8791","--log-level","warning" -PassThru -NoNewWindow
+          try {
+            $ok = $false
+            foreach ($i in 1..40) {
+              Start-Sleep -Milliseconds 500
+              try {
+                $health = Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:8791/health"
+                if ($health.StatusCode -eq 200) { $ok = $true; break }
+              } catch { }
+            }
+            if (-not $ok) { throw "the bundled app never answered on /health" }
+            $page = Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:8791/"
+            if ($page.Content -notmatch "assets/") {
+              throw "the Studio served a page without its asset bundle"
+            }
+            Write-Host "studio served $($page.Content.Length) bytes"
+          } finally {
+            Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
+          }
+
+          Write-Host "--- one-click render, frozen ---"
+          Remove-Item -Recurse -Force "$env:RUNNER_TEMP\hvw-out" -ErrorAction SilentlyContinue
+          & $app generate "为什么本地 AI 很重要" --width 320 --height 180 --preset fast --out "$env:RUNNER_TEMP\hvw-out"
+          if ($LASTEXITCODE -ne 0) { throw "generate exited $LASTEXITCODE" }
+          $mp4 = Get-ChildItem "$env:RUNNER_TEMP\hvw-out\*.mp4" -ErrorAction SilentlyContinue
+          if (-not $mp4) { throw "no MP4 was delivered to the out directory" }
+          Write-Host "produced $($mp4.Name) ($($mp4.Length) bytes)"
+
+      - name: Upload the portable zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: html-video-windows-x64
+          path: dist/release/*.zip
+          if-no-files-found: error
+
+      - name: Publish to the release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $zip = Get-ChildItem "dist/release/*.zip" | Select-Object -First 1
+          $notes = @"
+          下载 `$($zip.Name)`，解压后双击 `html-video.exe` 即可。无需安装 Python、Node 或 FFmpeg。
+
+          ### 使用前提
+          - Windows 10 / 11（64 位）
+          - 系统自带 Edge 浏览器（用于渲染画面）
+          - 中文配音需要系统装有中文语音包
+
+          ### 不填 API Key 也能用
+          不填时文案由内置模板生成，画面、配音、字幕都是真实的。想提升文案质量可以填入自己的 API Key，Key 只保存在本机。
+          "@
+          gh release view $tag 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag $zip.FullName --clobber
+          } else {
+            gh release create $tag $zip.FullName --title "$tag" --notes $notes
+          }

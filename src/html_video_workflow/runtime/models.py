@@ -98,6 +98,23 @@ class JobPlan(_Base):
     reasons: dict[str, list[str]] = Field(default_factory=dict)
     candidates: list[dict[str, Any]] = Field(default_factory=list)
 
+    # ---- product-level facts, so a polled result can answer every question a
+    # ---- synchronous one answers. `job_result()` promises "the same shape",
+    # ---- and for a while it was not: an async caller saw empty template,
+    # ---- style, scenes and elapsed time, which reads as "the render lost my
+    # ---- settings" rather than "the polling response was thinner".
+    template: str | None = None
+    style: str | None = None
+    scenes: int = 0
+    title: str = ""
+    duration_sec: float | None = None
+    narration_source: str | None = None
+    writing_preset: str | None = None
+    #: The planner's flat "why this" list. Distinct from ``reasons`` above,
+    #: which is the router's per-stage explanation keyed by stage name.
+    plan_reasons: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
 
 class Job(_Base):
     id: str = Field(default_factory=lambda: f"job_{uuid.uuid4().hex[:12]}")

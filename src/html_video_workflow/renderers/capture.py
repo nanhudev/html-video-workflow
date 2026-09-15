@@ -166,7 +166,7 @@ class BrowserCapture:
 
         try:
             completed = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=self.TIMEOUT_SEC
+                cmd, capture_output=True, text=True, errors="replace", timeout=self.TIMEOUT_SEC
             )
         except subprocess.TimeoutExpired:
             return CaptureResult(

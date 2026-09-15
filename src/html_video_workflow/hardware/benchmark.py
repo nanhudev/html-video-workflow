@@ -82,7 +82,7 @@ def benchmark_ffmpeg_encode(seconds: float = 3.0) -> dict[str, Any]:
         "-pix_fmt", "yuv420p", str(out),
     ]
     start = time.perf_counter()
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, errors="replace")
     elapsed = time.perf_counter() - start
     if result.returncode != 0 or not out.exists():
         return {"available": False, "reason": (result.stderr or "encode failed")[:300]}

@@ -6,12 +6,13 @@ mix, loudness normalisation, thumbnails. No other module builds ffmpeg argv.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
 
-from ..config.paths import cache_dir
+from ..config.paths import bin_dir, cache_dir
 from ..utils.logging import get_logger
 
 log = get_logger("ffmpeg.service")
@@ -25,10 +26,37 @@ class FFmpegError(RuntimeError):
     pass
 
 
+def _find_tool(name: str, env_var: str) -> str | None:
+    """Locate ffmpeg/ffprobe, preferring what we shipped over what is installed.
+
+    A packaged build carries its own binaries, because "download our app" must
+    not turn into "download our app, then go install ffmpeg and figure out
+    PATH". The order is deliberate:
+
+    1. an explicit environment override — the escape hatch for a user who has a
+       build we did not ship;
+    2. the ``bin`` folder next to the executable, which is the bundled copy;
+    3. PATH, which is the only source in a source checkout.
+
+    Bundled wins over PATH so a machine with an old system ffmpeg does not
+    quietly change the product's behaviour.
+    """
+    override = os.environ.get(env_var)
+    if override and Path(override).exists():
+        return override
+    bundled = bin_dir()
+    if bundled is not None:
+        for suffix in (".exe", ""):
+            candidate = bundled / f"{name}{suffix}"
+            if candidate.exists():
+                return str(candidate)
+    return shutil.which(name)
+
+
 class FFmpegService:
     def __init__(self) -> None:
-        self.ffmpeg = shutil.which("ffmpeg")
-        self.ffprobe = shutil.which("ffprobe")
+        self.ffmpeg = _find_tool("ffmpeg", "HVW_FFMPEG")
+        self.ffprobe = _find_tool("ffprobe", "HVW_FFPROBE")
 
     # ------------------------------------------------------------ probing
     def available(self) -> bool:
@@ -44,7 +72,7 @@ class FFmpegService:
         if not self.ffmpeg:
             return None
         result = subprocess.run(
-            [self.ffmpeg, "-version"], capture_output=True, text=True, timeout=30
+            [self.ffmpeg, "-version"], capture_output=True, text=True, errors="replace", timeout=30
         )
         line = (result.stdout or "").splitlines()
         return line[0].strip() if line else None
@@ -61,11 +89,30 @@ class FFmpegService:
             "-show_streams",
             str(path),
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        result = subprocess.run(cmd, capture_output=True, text=True,
+                                errors="replace", timeout=120)
+        stdout = result.stdout
+        if stdout is None:
+            # Observed in a packaged build: `returncode` is 0 and yet nothing was
+            # captured. `json.loads(None)` then raises a `TypeError`, which reads
+            # like a programming mistake and buries the real problem — a probe
+            # that returned nothing at all. Re-run asking for raw bytes, so the
+            # answer is unambiguous, and report the exit code and stderr if that
+            # is empty too.
+            log.error("ffprobe captured nothing for %s; re-running", path)
+            retry = subprocess.run(cmd, stdout=subprocess.PIPE,
+                                   stderr=subprocess.PIPE, timeout=120)
+            stdout = (retry.stdout or b"").decode("utf-8", "replace")
+            if not stdout.strip():
+                log.error("ffprobe produced no output for %s (exit %s, stderr=%r)",
+                          path, retry.returncode, (retry.stderr or b"")[:300])
+                raise FFmpegError(
+                    f"ffprobe produced no output for {path} "
+                    f"(exit {retry.returncode})")
         if result.returncode != 0:
             raise FFmpegError(f"ffprobe failed: {(result.stderr or '').strip()[:300]}")
         try:
-            return json.loads(result.stdout)
+            return json.loads(stdout)
         except json.JSONDecodeError as exc:
             raise FFmpegError("ffprobe returned invalid JSON") from exc
 
@@ -221,7 +268,7 @@ class FFmpegService:
                 f"loudnorm=I={target_lufs}:TP={true_peak}{lra_clause}:print_format=json",
                 "-f", "null", "-",
             ],
-            capture_output=True, text=True, timeout=600,
+            capture_output=True, text=True, errors="replace", timeout=600,
         )
         measured: dict[str, Any] = {}
         tail = (measure.stderr or "").strip().splitlines()
@@ -335,7 +382,7 @@ class FFmpegService:
     def _run(self, cmd: list[str], timeout: int = 900) -> subprocess.CompletedProcess[str]:
         self.require()
         log.debug("ffmpeg: %s", " ".join(str(c) for c in cmd[:6]) + " …")
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        result = subprocess.run(cmd, capture_output=True, text=True, errors="replace", timeout=timeout)
         if result.returncode != 0:
             raise FFmpegError(f"ffmpeg failed (rc={result.returncode}): "
                               f"{(result.stderr or '').strip()[-400:]}")

@@ -122,7 +122,7 @@ class QualityEngine:
             "-af", "volumedetect", "-f", "null", "-",
         ]
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            result = subprocess.run(cmd, capture_output=True, text=True, errors="replace", timeout=300)
         except (OSError, subprocess.SubprocessError) as exc:
             return CheckResult("audio_level", "warn", f"volumedetect failed: {exc}")
         text = result.stderr or ""
@@ -149,7 +149,7 @@ class QualityEngine:
             "-an", "-f", "null", "-",
         ]
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+            result = subprocess.run(cmd, capture_output=True, text=True, errors="replace", timeout=600)
         except (OSError, subprocess.SubprocessError) as exc:
             return CheckResult("black_frames", "warn", f"blackdetect failed: {exc}")
         hits = re.findall(r"blackdetect:.*?black_start:([\d.]+)", result.stderr or "")
@@ -169,7 +169,7 @@ class QualityEngine:
             "-af", f"silencedetect=n=-45dB:d={min_duration}", "-f", "null", "-",
         ]
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+            result = subprocess.run(cmd, capture_output=True, text=True, errors="replace", timeout=600)
         except (OSError, subprocess.SubprocessError) as exc:
             return CheckResult("silence", "warn", f"silencedetect failed: {exc}")
         starts = re.findall(r"silence_start:\s*([\d.]+)", result.stderr or "")

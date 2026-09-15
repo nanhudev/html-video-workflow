@@ -134,6 +134,9 @@ export interface VideoResult {
   template: string | null;
   style: string | null;
   title: string | null;
+  /** Who actually wrote the narration: llm | rule | user. */
+  narration_source: string | null;
+  writing_preset: string | null;
   providers: Record<string, string>;
   fallbacks: Record<string, string>[];
   warnings: string[];
@@ -204,6 +207,8 @@ export interface CreateVideoBody {
   style?: string;
   voice?: string;
   captions?: boolean;
+  writing_preset?: string;
+  writing_notes?: string;
   preset?: string;
   wait?: boolean;
   dry_run?: boolean;
@@ -211,8 +216,112 @@ export interface CreateVideoBody {
   created_by?: string;
 }
 
+// ------------------------------------------------------ wizard (setup/desktop)
+/** One line of the environment self-check. */
+export interface SetupItem {
+  id: string;
+  label: string;
+  state: string;
+  state_label: string;
+  detail: string;
+  fix: string;
+  required: boolean;
+}
+
+export interface LlmStatus {
+  provider: string;
+  state: string;
+  state_label: string;
+  configured: boolean;
+  reason: string | null;
+  base_url: string;
+  model: string;
+  masked_key: string;
+  offline_effect: string;
+  saved?: boolean;
+  summary?: Record<string, unknown>;
+}
+
+export interface SetupStatus {
+  version: string;
+  home: string;
+  outputs: string;
+  ready: boolean;
+  blocking: string[];
+  items: SetupItem[];
+  llm: LlmStatus;
+}
+
+/** How the narration is written. Distinct from a template, which is the look. */
+export interface WritingPreset {
+  id: string;
+  name: string;
+  icon: string;
+  tagline: string;
+  description: string;
+  audience: string;
+  tone: string;
+  persona: string;
+  rules: string[];
+  structure: string[];
+  template: string | null;
+  style: string | null;
+  duration_sec: number | null;
+  scenes: number | null;
+  platform: string | null;
+  tags: string[];
+}
+
+export interface OutputItem {
+  name: string;
+  path: string;
+  title: string;
+  size_mb: number;
+  created_at: string;
+  thumbnail: string | null;
+}
+
+export interface DesktopResult {
+  ok: boolean;
+  detail: string;
+  path: string;
+}
+
+/** Credentials for the "use my own key" flow. Never read back from the server. */
+export interface LlmCredentials {
+  api_key?: string | null;
+  base_url?: string | null;
+  model?: string | null;
+}
+
 export const api = {
   health: () => request<{ status: string; version: string }>("/health"),
+
+  // ---- wizard: environment, credentials, finished work
+  setupStatus: () => request<SetupStatus>("/v1/setup/status"),
+  saveLlm: (body: LlmCredentials) =>
+    request<LlmStatus>("/v1/setup/llm", { method: "POST", body: JSON.stringify(body) }),
+  testLlm: (body: LlmCredentials) =>
+    request<LlmStatus>("/v1/setup/llm/test", { method: "POST", body: JSON.stringify(body) }),
+  clearLlm: () =>
+    request<LlmStatus & { cleared: boolean }>("/v1/setup/llm", {
+      method: "POST",
+      body: JSON.stringify({ api_key: "" }),
+    }),
+  presets: () => request<WritingPreset[]>("/v1/presets"),
+  outputs: () => request<{ directory: string; items: OutputItem[] }>("/v1/outputs"),
+  reveal: (path: string) =>
+    request<DesktopResult>("/v1/desktop/reveal", {
+      method: "POST",
+      body: JSON.stringify({ path }),
+    }),
+  openPath: (path: string) =>
+    request<DesktopResult>("/v1/desktop/open", {
+      method: "POST",
+      body: JSON.stringify({ path }),
+    }),
+  /** Where the browser can fetch a finished file from. */
+  mediaUrl: (name: string) => `${BASE}/v1/outputs/${encodeURIComponent(name)}`,
 
   // ---- v1: the one-click product API
   createVideo: (body: CreateVideoBody) =>

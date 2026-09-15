@@ -59,6 +59,10 @@ class TopicPlanner:
     def __init__(self, llm_provider: Any | None = None) -> None:
         self._llm = llm_provider
 
+    def use_provider(self, llm_provider: Any | None) -> None:
+        """Attach the language model the router selected. See ScriptPlanner."""
+        self._llm = llm_provider
+
     # ------------------------------------------------------------------ public
     def suggest(self, request: CreateVideoRequest,
                 documents: list[SourceDocument] | None = None,

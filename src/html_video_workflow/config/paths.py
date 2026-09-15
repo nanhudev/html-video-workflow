@@ -9,6 +9,7 @@ Override with the ``HVW_HOME`` environment variable.
 from __future__ import annotations
 
 import os
+import sys
 from functools import lru_cache
 from pathlib import Path
 
@@ -132,18 +133,62 @@ def database_path() -> Path:
 
 
 def repo_root() -> Path:
-    """Repository root (three levels above this file: src/pkg/config)."""
+    """Repository root, or the executable's folder in a packaged build.
+
+    Three levels above this file is right for ``src/pkg/config/paths.py`` and
+    wrong inside a bundle, where the same relative walk lands on PyInstaller's
+    ``_internal`` directory. Both callers want "the folder the product lives
+    in", so that is what they get.
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
     return Path(__file__).resolve().parents[3]
+
+
+def is_frozen() -> bool:
+    """True when running from a packaged build rather than a source checkout."""
+    return bool(getattr(sys, "frozen", False))
+
+
+def bundle_root() -> Path:
+    """The directory a user sees: the folder containing the executable."""
+    return repo_root()
+
+
+def resource_dir() -> Path:
+    """Where read-only assets were unpacked (templates, helper scripts).
+
+    PyInstaller unpacks ``--add-data`` payloads under ``sys._MEIPASS``, which is
+    a *different* directory from the executable in one-file builds and a
+    ``_internal`` subfolder in one-dir builds. Asking the runtime rather than
+    guessing is the only version of this that keeps working.
+    """
+    if is_frozen():
+        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+    return repo_root()
+
+
+def bin_dir() -> Path | None:
+    """A folder shipped next to the executable for bundled tools like ffmpeg.
+
+    ``None`` in a source checkout: there the tools come from PATH, and
+    pretending otherwise would send ``doctor`` looking for a directory that is
+    not part of the repository.
+    """
+    if not is_frozen():
+        return None
+    candidate = bundle_root() / "bin"
+    return candidate if candidate.is_dir() else None
 
 
 def legacy_script() -> Path:
     """Path to the untouched legacy pipeline entry point."""
-    return repo_root() / "scripts" / "workflow.py"
+    return resource_dir() / "scripts" / "workflow.py"
 
 
 def templates_dir() -> Path:
-    return repo_root() / "templates"
+    return resource_dir() / "templates"
 
 
 def schemas_dir() -> Path:
-    return repo_root() / "schemas"
+    return resource_dir() / "schemas"

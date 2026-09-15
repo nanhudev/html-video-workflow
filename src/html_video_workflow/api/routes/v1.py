@@ -116,6 +116,21 @@ def list_styles() -> list[dict[str, Any]]:
     return [style.model_dump(mode="json") for style in get_registry().styles()]
 
 
+@router.get("/presets")
+def list_presets() -> list[dict[str, Any]]:
+    """Writing presets: who is talking, to whom, and under which rules."""
+    return [preset.model_dump(mode="json") for preset in get_registry().presets()]
+
+
+@router.get("/presets/{preset_id}")
+def get_preset(preset_id: str) -> dict[str, Any]:
+    preset = get_registry().find_preset(preset_id)
+    if preset is None:
+        _raise(VideoErrorCode.NO_TEMPLATE, f"unknown writing preset: {preset_id}")
+    assert preset is not None
+    return preset.model_dump(mode="json")
+
+
 @router.get("/platforms")
 def list_platforms() -> list[dict[str, Any]]:
     return [preset.model_dump(mode="json") for preset in PLATFORM_PRESETS.values()]

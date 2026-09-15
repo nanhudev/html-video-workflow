@@ -121,7 +121,7 @@ class LegacyHTMLRenderer(RendererProvider):
         ]
         started = time.perf_counter()
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            result = subprocess.run(cmd, capture_output=True, text=True, errors="replace", timeout=120)
         except subprocess.TimeoutExpired as exc:
             raise ProviderTimeout(
                 f"Browser screenshot timed out after 120s for scene {request.index}",

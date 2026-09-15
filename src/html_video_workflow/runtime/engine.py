@@ -113,7 +113,15 @@ class VideoRuntime:
                        "subtitle": job.plan.subtitle or ""},
             fallbacks=[dict(item) for item in job.fallbacks],
             qc=job.quality,
-            warnings=[],
+            template=job.plan.template,
+            style=job.plan.style,
+            title=job.plan.title or None,
+            scenes=job.plan.scenes,
+            duration_sec=job.plan.duration_sec,
+            narration_source=job.plan.narration_source,
+            writing_preset=job.plan.writing_preset,
+            reasons=list(job.plan.plan_reasons),
+            warnings=list(job.plan.warnings),
         )
         video = job.outputs.get("video")
         if job.status is JobStatus.COMPLETED and video and Path(video).exists():
@@ -127,6 +135,7 @@ class VideoRuntime:
             result.error = job.errors[-1]["message"] if job.errors else "job failed"
         result.status = job.status.value  # type: ignore[attr-defined]
         result.progress = round(job.progress, 3)  # type: ignore[attr-defined]
+        result.elapsed_sec = _elapsed_seconds(job)
         return result
 
     # ---------------------------------------------------------------- run
@@ -212,6 +221,8 @@ class VideoRuntime:
             providers={"llm": plan.llm or "", "tts": plan.tts or "",
                        "renderer": plan.renderer or "",
                        "subtitle": plan.subtitle or ""},
+            narration_source=script.generated_by,
+            writing_preset=script.writing_preset,
             reasons=plan.reasons,
             warnings=list(plan.warnings),
             artifacts={"project": str(project_path)},
@@ -230,6 +241,17 @@ class VideoRuntime:
         if plan.renderer:
             overrides["renderer"] = plan.renderer
         job = self.create_job(project, preset=request.preset, overrides=overrides)
+        # Record the product-level outcome on the job before it runs, so the
+        # polled result is the same object a synchronous caller received.
+        job.plan.template = plan.template_id
+        job.plan.style = plan.style_id
+        job.plan.scenes = len(script.beats)
+        job.plan.title = project.project.title
+        job.plan.duration_sec = result.duration_sec
+        job.plan.narration_source = script.generated_by
+        job.plan.writing_preset = script.writing_preset
+        job.plan.plan_reasons = list(plan.reasons)
+        job.plan.warnings = list(plan.warnings)
         result.job_id = job.id
 
         if not request.wait:
@@ -370,6 +392,25 @@ class VideoRuntime:
             self.persist(job)
             detach_job_log(handler)
         return job
+
+
+def _elapsed_seconds(job: Job) -> float | None:
+    """Wall-clock duration of a finished job, from its own timestamps.
+
+    Returns ``None`` rather than ``0`` when the job never started: "took no
+    time" and "we do not know" are different statements, and a UI that prints
+    0.0 seconds for a missing measurement is lying by formatting.
+    """
+    from datetime import datetime
+
+    if not job.started_at or not job.ended_at:
+        return None
+    try:
+        started = datetime.fromisoformat(job.started_at)
+        ended = datetime.fromisoformat(job.ended_at)
+    except ValueError:
+        return None
+    return round((ended - started).total_seconds(), 2)
 
 
 def _probe_size(path: Path) -> tuple[int, int] | None:

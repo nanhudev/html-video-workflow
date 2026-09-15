@@ -16,9 +16,16 @@ against it, and a change that breaks any clause here is a breaking change.
 | Python | `create_video(prompt="explain vector databases")` |
 | REST | `POST /v1/videos {"prompt": "..."}` |
 | MCP / Agent Skill | `create_video` tool call |
-| Studio | type a prompt, press **Generate** |
+| GUI wizard | the seven steps, ending at **开始生成** |
+| Packaged exe | double-click `html-video.exe` |
 
 A second command to "render", "compose" or "export" means the contract is broken.
+
+For the packaged exe specifically, "one action" is a **double-click**: the build
+must open the browser itself, must not require Python, Node or FFmpeg to be
+installed, and must run the same probes the source checkout does. A packaged
+build that reports a capability the unpackaged one does not have is defect
+`E-002`.
 
 ## 2. The single source of truth
 

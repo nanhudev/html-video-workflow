@@ -75,7 +75,7 @@ def render_legacy(
     if preview_only:
         cmd.append("--preview-only")
     log.info("legacy render: %s", " ".join(cmd))
-    result = subprocess.run(cmd, capture_output=True, text=True, cwd=str(repo_root()))
+    result = subprocess.run(cmd, capture_output=True, text=True, errors="replace", cwd=str(repo_root()))
     if result.returncode != 0:
         raise RuntimeError(
             "Legacy render failed: "
@@ -103,7 +103,7 @@ def research_legacy(urls: list[str], output: str | Path, max_chars: int = 18000,
     ]
     for url in urls:
         cmd += ["--url", url]
-    result = subprocess.run(cmd, capture_output=True, text=True, cwd=str(repo_root()))
+    result = subprocess.run(cmd, capture_output=True, text=True, errors="replace", cwd=str(repo_root()))
     if result.returncode != 0:
         raise RuntimeError(
             "Legacy research failed: " + (result.stderr or result.stdout or "")[-500:]
@@ -121,7 +121,7 @@ def gallery_legacy(project_path: str | Path, build_dir: str | Path) -> Path:
         "--build",
         str(Path(build_dir).resolve()),
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, cwd=str(repo_root()))
+    result = subprocess.run(cmd, capture_output=True, text=True, errors="replace", cwd=str(repo_root()))
     if result.returncode != 0:
         raise RuntimeError(
             "Legacy gallery failed: " + (result.stderr or result.stdout or "")[-500:]

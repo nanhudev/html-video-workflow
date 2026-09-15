@@ -88,9 +88,8 @@ def _run(cmd: list[str], timeout: float = 15.0) -> subprocess.CompletedProcess[s
         return subprocess.run(
             cmd,
             capture_output=True,
-            text=True,
+            text=True, errors="replace",
             timeout=timeout,
-            errors="replace",
         )
     except (OSError, subprocess.SubprocessError) as exc:
         log.debug("probe command failed: %s (%s)", " ".join(cmd), exc)
@@ -472,9 +471,14 @@ def resolve_browser() -> ToolInfo:
 
 
 def _detect_tooling() -> dict[str, ToolInfo]:
+    # Resolved the same way the renderer resolves them, bundled copy first. A
+    # self-check that reports "ffmpeg missing" while rendering happily uses the
+    # copy we shipped would be worse than no self-check at all.
+    from ..ffmpeg.service import _find_tool
+
     tooling = {
-        "ffmpeg": _tool("ffmpeg", ["-version"]),
-        "ffprobe": _tool("ffprobe", ["-version"]),
+        "ffmpeg": _tool(_find_tool("ffmpeg", "HVW_FFMPEG") or "ffmpeg", ["-version"]),
+        "ffprobe": _tool(_find_tool("ffprobe", "HVW_FFPROBE") or "ffprobe", ["-version"]),
         "browser": resolve_browser(),
         "node": _tool("node", ["--version"]),
         "npm": _tool("npm", ["--version"]),

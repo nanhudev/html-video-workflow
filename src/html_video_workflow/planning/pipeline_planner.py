@@ -44,6 +44,12 @@ class PipelinePlan(BaseModel):
     renderer: str | None = None
     subtitle: str | None = None
 
+    #: Filled in once the script exists: who wrote the words, under which brief.
+    #: Lives on the plan because the plan is what a job persists, and an async
+    #: caller polls the job and must see the same answer a synchronous caller got.
+    narration_source: str | None = None
+    writing_preset: str | None = None
+
     reasons: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     #: The full ranking, so "why not template X" is answerable.
@@ -77,6 +83,13 @@ class PipelinePlanner:
         reasons: list[str] = []
         warnings: list[str] = []
 
+        # Routing runs first now, not last: the provider it selects has to be
+        # attached *before* the topic and script planners run, or a configured
+        # model influences the plan while the words are still written by rules.
+        route = self._route(request)
+        self._attach_llm(route, reasons)
+        reasons.extend(self._route_reasons(route))
+
         output = self._output(request, reasons, warnings)
         duration = self._duration(request, output, warnings)
         suggestion = self.topics.decide(request, documents)
@@ -100,9 +113,6 @@ class PipelinePlanner:
                        f"(template {template.id} allows "
                        f"{template.scene_count.get('min', 3)}-"
                        f"{template.scene_count.get('max', 8)})")
-
-        route = self._route(request)
-        reasons.extend(self._route_reasons(route))
 
         return PipelinePlan(
             topic=suggestion.title,
@@ -128,7 +138,13 @@ class PipelinePlanner:
     def build_script(self, plan: PipelinePlan, request: CreateVideoRequest,
                      documents: list[SourceDocument] | None = None) -> VideoScript:
         assert plan.template is not None
-        return self.scripts.build(
+        preset = None
+        if request.writing_preset:
+            from .presets import resolve_preset
+
+            preset = resolve_preset(request.writing_preset)
+            plan.reasons.append(f"writing preset {preset.id} ({preset.name})")
+        script = self.scripts.build(
             plan.topic,
             manifest=plan.template,
             language=plan.language,
@@ -136,7 +152,44 @@ class PipelinePlanner:
             script_text=request.script,
             target_duration_sec=plan.duration_sec,
             scene_count=plan.scenes,
+            preset=preset,
+            custom_brief=request.writing_notes,
         )
+        # Provenance belongs on the plan as soon as it is knowable. The plan is
+        # what a job persists, and an async caller reads the job back — if these
+        # two fields were only ever filled by the synchronous return value, a
+        # polled result would silently lose "who wrote these words".
+        plan.writing_preset = script.writing_preset
+        plan.narration_source = script.generated_by
+        return script
+
+    def _attach_llm(self, route: dict[str, Any], reasons: list[str]) -> None:
+        """Give the planners the model the router chose — if it is a real one.
+
+        A placeholder is deliberately *not* attached. ``mock_llm`` would happily
+        return plausible-looking JSON, and content that merely looks planned is
+        worse than deterministic rule text that is honest about being rules.
+        The rule writer is the fallback in both cases; the difference is that
+        this way the provenance is not a lie.
+        """
+        from ..providers.registry import get as get_provider
+
+        provider_id = (route.get("selection") or {}).get("llm")
+        provider: Any | None = None
+        if provider_id:
+            try:
+                candidate = get_provider(provider_id)
+            except KeyError:
+                candidate = None
+            tags = list(getattr(getattr(candidate, "spec", None), "tags", []) or [])
+            if candidate is not None and "low_fidelity" not in tags:
+                provider = candidate
+            elif candidate is not None:
+                reasons.append(
+                    f"{provider_id} is a placeholder planner, so the narration is "
+                    f"written by the built-in rules rather than by a model")
+        self.scripts.use_provider(provider)
+        self.topics.use_provider(provider)
 
     # --------------------------------------------------------------- internals
     def _output(self, request: CreateVideoRequest, reasons: list[str],

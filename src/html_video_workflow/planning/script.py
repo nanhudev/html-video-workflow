@@ -15,8 +15,12 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..sources.document import SourceDocument
-from ..templates.models import TemplateManifest
+from ..templates.models import TemplateManifest, WritingPreset
 from ..utils.audio import estimate_speech_seconds
+from ..utils.logging import get_logger
+from .presets import compose_system_prompt
+
+log = get_logger("planning.script")
 
 #: ``{t}`` = topic, ``{f}`` = a fact lifted from the source, ``{n}`` = index.
 _BEATS: dict[str, dict[str, dict[str, str]]] = {
@@ -285,6 +289,10 @@ class VideoScript(BaseModel):
     beats: list[ScriptBeat] = Field(default_factory=list)
     source_facts: list[str] = Field(default_factory=list)
     generated_by: str = "rule"
+    #: Which writing preset the narration was written under, if any. Provenance
+    #: matters more than it looks: two videos with identical beats are
+    #: different products depending on this field.
+    writing_preset: str | None = None
     warnings: list[str] = Field(default_factory=list)
 
     @property
@@ -312,6 +320,17 @@ class ScriptPlanner:
     def __init__(self, llm_provider: Any | None = None) -> None:
         self._llm = llm_provider
 
+    def use_provider(self, llm_provider: Any | None) -> None:
+        """Attach the language model the router actually selected.
+
+        Exists because the decision belongs to the router, not to this class:
+        ``create_video`` builds a planner before it knows the routing, and the
+        first version never attached anything afterwards — so a configured API
+        key changed the *plan* and nothing about the words, which is precisely
+        the "I paid for a model and got templates" failure.
+        """
+        self._llm = llm_provider
+
     def build(
         self,
         topic: str,
@@ -322,7 +341,10 @@ class ScriptPlanner:
         script_text: str | None = None,
         target_duration_sec: float | None = None,
         scene_count: int | None = None,
+        preset: WritingPreset | None = None,
+        custom_brief: str | None = None,
     ) -> VideoScript:
+        warnings: list[str] = []
         if script_text and script_text.strip():
             beats = self._from_user_script(script_text, language)
             generated_by = "user"
@@ -330,11 +352,21 @@ class ScriptPlanner:
             beats = self._from_beats(topic, manifest, language, documents or [],
                                      scene_count)
             generated_by = "rule"
-            llm_beats = self._try_llm(topic, manifest, language, documents or [])
+            llm_beats, failure = self._try_llm(
+                topic, manifest, language, documents or [],
+                preset=preset, custom_brief=custom_brief)
             if llm_beats:
                 beats, generated_by = llm_beats, "llm"
+            elif failure:
+                # A configured model that failed is not the same product as no
+                # model at all, and it is not the user's fault. Saying which one
+                # happened is the difference between a debuggable product and a
+                # mysterious one.
+                warnings.append(
+                    f"the language model was available but the script call failed "
+                    f"({failure}); the built-in rule writer produced the narration "
+                    f"instead")
 
-        warnings: list[str] = []
         beats = self._fit_duration(beats, language, manifest, target_duration_sec,
                                    warnings)
         facts = [fact for doc in (documents or []) for fact in doc.facts][:12]
@@ -346,6 +378,7 @@ class ScriptPlanner:
             beats=beats,
             source_facts=facts,
             generated_by=generated_by,
+            writing_preset=preset.id if preset else None,
             warnings=warnings,
         )
 
@@ -420,23 +453,45 @@ class ScriptPlanner:
         ]
 
     def _try_llm(self, topic: str, manifest: TemplateManifest, language: str,
-                 documents: list[SourceDocument]) -> list[ScriptBeat] | None:
+                 documents: list[SourceDocument], *,
+                 preset: WritingPreset | None = None,
+                 custom_brief: str | None = None,
+                 ) -> tuple[list[ScriptBeat] | None, str | None]:
+        """Ask the configured model for the narration.
+
+        Returns ``(beats, None)`` on success and ``(None, reason)`` when a model
+        was configured but the call failed. The reason is a *value* rather than
+        a log line because "the model is configured and broken" needs a
+        different fix from "no model is configured", and the previous
+        ``except Exception: return None`` collapsed both into silence.
+        """
         if self._llm is None:
-            return None
+            return None, None
+        key = _lang_key(language)
+        kinds = [
+            (name, str((_BEATS.get(name, {}).get("label") or {}).get(key, name)))
+            for name in (manifest.beats or ["hook", "claim", "evidence", "payoff"])
+        ]
+        system = compose_system_prompt(
+            preset,
+            language=language,
+            custom=custom_brief,
+            kinds=kinds,
+            max_chars=int(manifest.narration.get("max_chars_per_scene", 130)),
+        )
         try:
             from ..providers.base import LLMRequest
 
             digest = "\n".join(doc.summary(800) for doc in documents)[:3000]
+            material = f"\n可用材料：\n{digest}" if digest.strip() else ""
             response = self._llm.complete(LLMRequest(
                 prompt=(
-                    f"Topic: {topic}\nLanguage: {language}\n"
-                    f"Beats: {', '.join(manifest.beats)}\n"
-                    f"Max chars per beat: "
-                    f"{manifest.narration.get('max_chars_per_scene', 130)}\n"
-                    f"Source material:\n{digest}"
+                    f"视频主题：{topic}\n"
+                    f"语言：{language}\n"
+                    f"节拍数量：{len(kinds)}"
+                    f"{material}"
                 ),
-                system=("You are a documentary script editor. Return JSON only: "
-                        '{"beats":[{"kind","label","headline","narration"}]}'),
+                system=system,
                 json_mode=True,
             ))
             import json
@@ -455,9 +510,12 @@ class ScriptPlanner:
                     narration=narration,
                     layout=_BEAT_LAYOUT.get(str(item.get("kind") or "")),
                 ))
-            return beats or None
-        except Exception:  # noqa: BLE001 - the rules are the fallback
-            return None
+            if not beats:
+                return None, "the model returned no usable beats"
+            return beats, None
+        except Exception as exc:  # noqa: BLE001 - the rules are the fallback
+            log.warning("script call via %s failed: %s", getattr(self._llm, "id", "?"), exc)
+            return None, f"{type(exc).__name__}: {exc}"
 
     def _fit_duration(self, beats: list[ScriptBeat], language: str,
                       manifest: TemplateManifest, target: float | None,

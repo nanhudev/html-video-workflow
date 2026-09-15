@@ -78,6 +78,54 @@ class TemplateManifest(BaseModel):
         return max(low, min(high, int(wanted)))
 
 
+class WritingPreset(BaseModel):
+    """How the words should be written: who is talking, to whom, and how.
+
+    A preset is *not* a template. A template decides what the video is made of
+    (beats, layouts, scene count); a preset decides how the narration is
+    written. Keeping them apart means "教程步骤 in blueprint colours" is a
+    combination, not a new file.
+
+    ``persona`` and ``rules`` are what a language model receives. They are
+    deliberately separate from ``structure``/``description``, which exist for
+    the human choosing the card — a user-facing blurb and a model instruction
+    are different documents that happen to be about the same thing.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    name: str
+    icon: str = "✳"
+    #: One line, for a card. The reason a user picks this one.
+    tagline: str = ""
+    #: The longer explanation, shown once the card is expanded.
+    description: str = ""
+    audience: str = ""
+    tone: str = ""
+
+    persona: str = ""
+    rules: list[str] = Field(default_factory=list)
+    #: The narrative arc, in user-facing language. Mirrors the template's
+    #: ``beats`` without being the same thing: beats are machine kinds.
+    structure: list[str] = Field(default_factory=list)
+
+    #: Recommendations, never requirements — the request wins over the preset.
+    template: str | None = None
+    style: str | None = None
+    duration_sec: int | None = None
+    scenes: int | None = None
+    platform: str | None = None
+    tags: list[str] = Field(default_factory=list)
+
+    def brief(self, custom: str | None = None) -> str:
+        """The human-readable brief, used when no model is configured."""
+        parts = [self.persona, *self.rules]
+        if custom and custom.strip():
+            parts.append(custom.strip())
+        return "\n".join(part for part in parts if part)
+
+
 class StyleProfile(BaseModel):
     """The skin. Never changes the argument, only the reading of it."""
 

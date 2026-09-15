@@ -1,109 +1,190 @@
-# Quickstart
+# 五分钟上手
 
-One prompt in. A complete MP4 out.
+从零到一条能直接发出去的视频。
 
-## Install
+---
+
+## 一、装好（1 分钟，只做一次）
+
+1. 到 [Releases](../../releases/latest) 下载 `html-video-windows-x64-*.zip`
+2. 解压到 `D:\html-video` 之类的数据盘目录
+3. 双击 **`html-video.exe`**
+
+黑色窗口是本地服务，**别关**。几秒后浏览器自动打开 <http://127.0.0.1:8787>。
+
+> 没自动打开？手动在浏览器输入 `http://127.0.0.1:8787`。
+> 提示端口被占用？在命令行里运行 `html-video.exe --port 8899`。
+
+---
+
+## 二、第一步：环境自检
+
+打开后先看到一张清单。这是**真的在探测你这台机器**，不是走个过场：
+
+| 检查项 | 什么意思 |
+| :--- | :--- |
+| 视频合成 FFmpeg | 负责把画面和声音拼成 MP4 |
+| 视频检测 FFprobe | 负责检查成品是否正常 |
+| 画面渲染（浏览器内核） | 用系统自带的 Edge 内核把版式截成图 |
+| 语音合成（配音） | 用系统语音包念旁白 |
+| 数据目录可写 | 视频要存得下 |
+| 磁盘剩余空间 | 一分钟视频约需 1–2 GB 临时空间 |
+
+**有问题的项会直接告诉你怎么修。** 全是绿色就点「下一步」。
+
+---
+
+## 三、第二步：文案引擎（可以跳过）
+
+这里决定**旁白由谁来写**。
+
+- **不想折腾** → 选「离线」，直接下一步。文案由内置规则生成，画面、配音、字幕都是真的。
+- **想要更好的文案** → 填一个 API Key。
+
+预置了几个常见服务商，选一个会自动填好接口地址，你只需要粘贴 Key：
+
+| 服务商 | 申请地址 |
+| :--- | :--- |
+| DeepSeek | platform.deepseek.com |
+| OpenAI | platform.openai.com |
+| Moonshot（Kimi） | platform.moonshot.cn |
+| 硅基流动 | cloud.siliconflow.cn |
+
+填完点 **「测试连接」** —— 它会真的调用一次接口。只会告诉你"已保存"但不验证的按钮，
+是在把问题推到你出片之后。测试通过再点「保存」。
+
+> Key 存在本机 `数据目录\.env`，权限仅当前用户。不会上传到任何第三方服务器。
+
+---
+
+## 四、第三步：选题
+
+用大白话写下你想讲什么，一两句就够：
+
+```
+为什么本地跑 AI 模型对普通人也有意义
+```
+
+顺手选三件事：
+
+- **时长** —— 30 / 60 / 90 / 120 秒。30 秒适合快节奏，60–90 秒最常用
+- **画面比例** —— 竖屏 9:16（抖音/视频号/Shorts）、横屏 16:9（B 站/YouTube）、方形 1:1
+- **语言** —— 简体中文 / English / 日本語
+
+不确定写什么？点「帮我想几个角度」，它会基于你输入的内容给几个切入点。
+
+---
+
+## 五、第四步：写作风格
+
+八种写法，每一种都写清了受众和口吻：
+
+| 风格 | 适合 |
+| :--- | :--- |
+| 科普解说 | 把一件复杂的事讲给完全不懂的人 |
+| 产品测评 | 说清楚它到底值不值 |
+| 教程步骤 | 跟着做就能成 |
+| 数据解读 | 用数字讲一个能记住的结论 |
+| 观点评论 | 亮出立场，并且接受反驳 |
+| 故事化叙事 | 让人想知道后面发生了什么 |
+| 新闻速览 | 三十秒说清发生了什么 |
+| 项目推介 | 三句话说清你解决什么问题 |
+
+选中一个，它推荐的模板、配色、时长和场景数会自动填进后面的步骤 ——
+**但你手改过的字段不会被覆盖**。下面的「补充要求」可以直接写，例如：
+
+```
+多用生活里的类比，少用术语；不要出现具体公司名
+```
+
+> 注意：补充要求只有在大模型写文案时才生效。选了离线就不必填，界面也会提醒你。
+
+---
+
+## 六、第五步：模板与配色
+
+- **模板** = 怎么组织论点（开场 → 展开 → 结论……）
+- **配色** = 皮肤（颜色、字体、间距）
+
+两者互相独立，可以任意组合。卡片上有色块预览，点一下就能看到它长什么样。
+
+---
+
+## 七、第六步：生成
+
+确认页会把你所有的选择列一遍。确认无误就点 **「开始生成」**。
+
+这一步实际发生的事：写文案 → 合成配音 → 逐场景渲染画面 → 生成字幕 → FFmpeg 合成 → 质检。
+实时进度会滚动更新，中途可以取消。
+
+60 秒的视频通常在一两分钟内完成，取决于机器。
+
+---
+
+## 八、第七步：完成
+
+- 页面上**直接播放**
+- **「打开文件位置」** —— 在资源管理器里选中这个文件
+- **复制完整路径** —— 贴到任何地方
+- 结果页还会告诉你：文案是规则写的还是模型写的、用了哪个模板、哪些地方做了取舍
+
+之前生成的所有视频都在左侧 **「我的作品」** 里，带缩略图，随时回看或定位。
+
+---
+
+## 常见问题
+
+**视频没有声音？**
+系统缺中文语音包。设置 → 时间和语言 → 语言和区域 → 中文(简体) → 语言选项 → 语音 → 添加。
+
+**能出竖屏吗？**
+能。选题那一步选 9:16 就行。
+
+**一定要联网吗？**
+不填 API Key 的话，全程离线。
+
+**能商用吗？**
+MIT 协议，可以。
+
+**出片在哪？**
+数据目录下的 `outputs`。数据目录默认选 D/E 盘，形如 `D:\html-video-workflow`；
+想换位置就设置环境变量 `HVW_HOME`，然后重启程序。
+
+---
+
+## 给开发者
+
+不想用图形界面的话，同一个程序就是完整的命令行工具：
 
 ```bash
-python -m venv .venv && .venv/bin/pip install html-video-workflow
-.venv/bin/html-video doctor          # see what this machine can actually do
+html-video                                   # 启动界面（等同于双击）
+html-video doctor                            # 逐项体检，OK / ?? / --
+html-video generate "为什么本地 AI 很重要"    # 一条命令出片
+html-video presets                           # 八种写作风格及其规则
+html-video templates                         # 模板目录
+html-video styles                            # 配色目录
+html-video studio                            # 只启动界面
+html-video serve                             # 同一个进程，按 API 描述自己
+html-video-mcp                               # JSON-RPC over stdio，给 Agent 用
 ```
 
-Requirements: Python ≥ 3.11 and FFmpeg on `PATH`. Everything else is optional —
-the runtime probes for providers and falls back with a recorded reason instead
-of failing.
-
-## Your first video
+常用参数：
 
 ```bash
-html-video generate "Why local AI matters"
+html-video generate "选题" --writing-preset how_to --duration 60
+html-video generate "选题" --aspect 9:16 --scenes 6
+html-video generate "选题" --source https://example.com/article   # 用真实资料打底
+html-video generate "选题" --source ./notes.md
+html-video generate "选题" --dry-run --json                        # 先看它会怎么做
+html-video generate "选题" --out D:\videos                         # 顺便拷到指定目录
 ```
 
-That runs the whole pipeline: source → topic → template → script → storyboard →
-render → voice → compose → QC. When it finishes you get the path, the measured
-duration, and the decisions it made.
+`--duration` 和 `--scenes` 是**目标值**，会被夹到模板支持的范围内。
+达不到目标时会给你一条 warning，而不是悄悄换掉。
 
-## The same thing from Python
+`doctor` 里 `??` 表示装了但用不了（缺模型、缺密钥），`--` 表示没装。
+两者都不是 bug —— 它报告的就是真实探测到的结果。
 
-```python
-from html_video_workflow import create_video
-
-result = create_video("Why local AI matters", out_dir="out")
-print(result.video_path, result.duration_sec)
-```
-
-The first argument is the prompt. `create_video(prompt="...")` and
-`create_video(CreateVideoRequest(...))` mean the same thing; a misspelled field
-is an error, never a silently ignored one.
-
-## Choose a shape
-
-```bash
-html-video generate "..." --platform youtube_shorts_9x16 --duration 30
-html-video generate "..." --aspect 1:1
-html-video generate "..." --width 1920 --height 1080
-html-video generate "..." --scenes 6
-```
-
-`--duration` and `--scenes` are **targets**, clamped to what the template
-supports. When the request cannot be met you get a warning, not a silent
-substitution.
-
-## Ground it in real material
-
-```bash
-html-video generate "..." --source https://example.com/article
-html-video generate "..." --source https://github.com/nanhudev/html-video-workflow
-html-video generate "..." --source ./notes.md
-```
-
-Web and repo sources are read at request time; the text is truncated loudly
-(`warning`) rather than silently.
-
-## See what it would do, before it does it
-
-```bash
-html-video generate "..." --dry-run --json
-```
-
-## Pick the look
-
-```bash
-html-video templates          # the catalogue, with what each is for
-html-video styles
-html-video generate "..." --template data_story --style blueprint
-```
-
-A template is the *structure of the argument*; a style is the *skin*. They are
-independent, and forcing a mismatched pair is allowed but recorded in
-`result.reasons`.
-
-## Serve it
-
-```bash
-html-video studio             # the GUI on http://127.0.0.1:8787
-html-video serve              # the same app, described as an API
-```
-
-Both serve the prebuilt Studio and the REST API from one process — no Node
-required. `html-video studio` says so plainly if the frontend was never built.
-
-```http
-POST /v1/videos  {"prompt": "Why local AI matters", "duration_sec": 45}
-```
-
-```bash
-html-video-mcp                # JSON-RPC over stdio, for agents
-```
-
-## When something looks wrong
-
-```bash
-html-video doctor             # per-provider truth: OK / ?? / --
-```
-
-`??` means installed but unusable (no model, no key). `--` means not installed.
-Neither is a bug — the runtime reports what it actually probed.
-
-Every result carries `reasons`, `warnings` and `fallbacks`. If a video came out
-shorter than asked, or in a different template, the explanation is in there.
+Python SDK 与 REST 契约见 [`docs/API.md`](docs/API.md)，
+架构与分层见 [`ARCHITECTURE.md`](ARCHITECTURE.md)，
+开发环境搭建见 [`DEVELOPMENT.md`](DEVELOPMENT.md)。

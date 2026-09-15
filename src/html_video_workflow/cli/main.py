@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -275,6 +276,8 @@ def _request_from_args(args: argparse.Namespace) -> CreateVideoRequest:
             style=args.style,
             voice=args.voice,
             captions=not args.no_captions,
+            writing_preset=getattr(args, "writing_preset", None),
+            writing_notes=getattr(args, "writing_notes", None),
             preset=args.preset,
             llm=args.llm,
             tts=args.tts,
@@ -368,6 +371,28 @@ def cmd_styles(args: argparse.Namespace) -> int:
               f"bg={style.color('bg', '?')} text={style.color('text', '?')}")
         if args.verbose:
             print(f"    {style.description}")
+    return 0
+
+
+def cmd_presets(args: argparse.Namespace) -> int:
+    """`html-video presets` — how the narration can be written."""
+    from ..templates.registry import get_registry
+
+    rows = get_registry().presets()
+    if args.json:
+        print(json.dumps([p.model_dump(mode="json") for p in rows],
+                         ensure_ascii=False, indent=2))
+        return 0
+    print(f"{'ID':<20}{'NAME':<12}{'TEMPLATE':<24}{'TAGLINE'}")
+    print("-" * 96)
+    for preset in rows:
+        print(f"{preset.id:<20}{preset.name:<12}{preset.template or '-':<24}"
+              f"{preset.tagline}")
+        if args.verbose:
+            print(f"    受众  {preset.audience}")
+            print(f"    语气  {preset.tone}")
+            print(f"    推荐  {preset.template} / {preset.style} / "
+                  f"{preset.duration_sec}s / {preset.scenes} 幕")
     return 0
 
 
@@ -486,6 +511,64 @@ def cmd_gallery(args: argparse.Namespace) -> int:
 
 
 # ----------------------------------------------------------------------- serve
+def cmd_start(args: argparse.Namespace) -> int:
+    """The double-click entry point: serve the wizard, then open the browser.
+
+    Different from ``studio`` in exactly two ways, and both matter to someone
+    who did not open a terminal on purpose: it creates the data directory
+    layout first (so the first render has somewhere to write), and it opens the
+    browser itself. Everything else is the same server.
+    """
+    try:
+        import uvicorn
+    except ImportError:
+        print("uvicorn is not installed. Install with: pip install -e '.[api]'")
+        return 1
+    from ..api import create_app
+    from ..api.studio import studio_dist
+    from ..config.paths import ensure_layout
+
+    home = ensure_layout()
+    app = create_app()
+    url = f"http://{args.host}:{args.port}/"
+    dist = studio_dist()
+
+    print()
+    print("  HTML Video Workflow - 本地视频生成工作台")
+    print("  " + "-" * 46)
+    if dist is None:
+        print("  界面: 未构建，只能使用 API 文档")
+        print("        (安装包自带界面；源码运行需先 cd apps/studio && npm ci && npm run build)")
+    else:
+        print(f"  界面: {url}")
+    print(f"  接口: {url}docs")
+    print(f"  数据: {home}")
+    print(f"  输出: {outputs_dir()}")
+    print("  " + "-" * 46)
+    print("  按 Ctrl+C 退出。关闭本窗口等于关闭服务。")
+    print()
+
+    if dist is not None and not args.no_browser:
+        # A short delay rather than an event: uvicorn has no "listening" hook
+        # that is worth the complexity here, and 1.2s beats the browser racing
+        # the socket and showing connection-refused on a first run.
+        threading.Timer(1.2, _open_browser_quietly, args=(url,)).start()
+
+    uvicorn.run(app, host=args.host, port=args.port, log_level=args.log_level)
+    return 0
+
+
+def _open_browser_quietly(url: str) -> None:
+    from ..utils.desktop import DesktopUnavailable, open_url
+
+    try:
+        open_url(url)
+    except (DesktopUnavailable, OSError) as exc:
+        # Not being able to open a browser is not a reason to stop serving;
+        # the URL is already printed above.
+        log.info("could not open a browser: %s", exc)
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     try:
         import uvicorn
@@ -575,12 +658,35 @@ def cmd_settings(args: argparse.Namespace) -> int:
 
 
 # ------------------------------------------------------------------------ main
+def _add_serve_flags(target: argparse.ArgumentParser, *, browser: bool = False) -> None:
+    """The flags every serving entry point shares.
+
+    Shared rather than copied, because a copy that drifts is invisible: the bare
+    ``html-video --port 8899`` this project documents only works if the top-level
+    parser and the ``start`` subcommand agree on what ``--port`` means.
+    """
+    target.add_argument("--host", default="127.0.0.1")
+    target.add_argument("--port", type=int, default=8787)
+    target.add_argument("--log-level", default="info")
+    if browser:
+        target.add_argument("--no-browser", action="store_true",
+                            help="do not open a browser (servers, headless boxes)")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="html-video", description="Local-first agentic video production runtime"
     )
     parser.add_argument("--verbose", action="store_true")
-    sub = parser.add_subparsers(dest="command", required=True)
+    # Accepted at the top level as well, so the bare `html-video --port 8899`
+    # in the troubleshooting docs actually parses without naming a subcommand.
+    _add_serve_flags(parser, browser=True)
+    sub = parser.add_subparsers(dest="command")
+    # No subcommand means "start the wizard". Declaring that on the parser rather
+    # than branching around `parse_args` in `main()` is what makes the documented
+    # bare `html-video` line true. An advertised command the parser rejects is a
+    # broken advertisement — which is precisely what the doc-example test catches.
+    parser.set_defaults(command="start", func=cmd_start)
 
     p = sub.add_parser("doctor", help="probe hardware, tooling and providers")
     p.add_argument("--refresh", action="store_true")
@@ -642,6 +748,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--template")
     p.add_argument("--style")
     p.add_argument("--voice")
+    p.add_argument("--writing-preset",
+                   help="writing preset id (see `html-video presets`)")
+    p.add_argument("--writing-notes",
+                   help="extra writing instructions for the language model")
     p.add_argument("--no-captions", action="store_true")
     p.add_argument("--preset", default="auto",
                    choices=["auto", "fast", "balanced", "high_quality", "max_quality"])
@@ -665,6 +775,11 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("styles", help="list style profiles")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_styles)
+
+    p = sub.add_parser("presets", help="list writing presets (how it reads)")
+    p.add_argument("--json", action="store_true")
+    p.add_argument("--verbose", action="store_true")
+    p.set_defaults(func=cmd_presets)
 
     p = sub.add_parser("platforms", help="list platform presets")
     p.add_argument("--json", action="store_true")
@@ -703,16 +818,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--build", default="build/gallery")
     p.set_defaults(func=cmd_gallery)
 
+    p = sub.add_parser("start", help="start the wizard and open the browser",
+                       description="The entry point for people who did not open "
+                                   "a terminal on purpose. Serves the Studio, "
+                                   "creates the data folders, opens the browser.")
+    _add_serve_flags(p, browser=True)
+    p.set_defaults(func=cmd_start)
+
     p = sub.add_parser("studio", help="open the Studio GUI (prebuilt, no Node)")
-    p.add_argument("--host", default="127.0.0.1")
-    p.add_argument("--port", type=int, default=8787)
-    p.add_argument("--log-level", default="info")
+    _add_serve_flags(p)
     p.set_defaults(func=cmd_studio)
 
     p = sub.add_parser("serve", help="start the Runtime API (and the Studio)")
-    p.add_argument("--host", default="127.0.0.1")
-    p.add_argument("--port", type=int, default=8787)
-    p.add_argument("--log-level", default="info")
+    _add_serve_flags(p)
     p.set_defaults(func=cmd_serve)
 
     p = sub.add_parser("settings", help="show or change settings")
@@ -729,10 +847,21 @@ def main(argv: list[str] | None = None) -> int:
     make_streams_unfailing()
     load_env_file()
     parser = build_parser()
-    args = parser.parse_args(argv)
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if not arguments:
+        # Double-clicked, or a shortcut with no arguments. The parser already
+        # defaults to `start`; this branch exists only to explain itself, because
+        # the alternative — a window that opens and silently sits there — is
+        # indistinguishable from a crash for the person who double-clicked.
+        print("未指定命令，正在启动本地界面…（用 --help 查看全部命令）")
+    args = parser.parse_args(arguments)
     configure_logging("DEBUG" if args.verbose else "INFO")
+    handler = getattr(args, "func", None)
+    if handler is None:
+        parser.print_help()
+        return 0
     try:
-        return int(args.func(args) or 0)
+        return int(handler(args) or 0)
     except Exception as exc:  # noqa: BLE001 - CLI boundary
         log.error("%s: %s", type(exc).__name__, exc)
         if args.verbose:

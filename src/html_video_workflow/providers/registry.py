@@ -12,6 +12,13 @@ log = get_logger("providers.registry")
 
 _LOCK = threading.RLock()
 _REGISTRY: dict[str, Provider] = {}
+
+#: provider id -> class, so an instance can be rebuilt without re-importing.
+#: See :func:`rebuild_instances`: a module already in ``sys.modules`` never
+#: re-runs its ``@register`` decorators, so the class table — not a re-import —
+#: is what makes "reload with the new credentials" possible at all.
+_CLASSES: dict[str, type[Provider]] = {}
+
 _ENTRY_POINTS_GROUP = "html_video_workflow.providers"
 
 #: module name -> "TypeError: ..." for every builtin that failed to import.
@@ -37,12 +44,21 @@ BUILTIN_MODULES: tuple[str, ...] = (
 
 
 class register:  # noqa: N801 - decorator reads better lowercase
-    """Class decorator that registers a provider instance."""
+    """Class decorator that registers a provider instance.
+
+    The class is kept as well as the instance. A provider reads the environment
+    in ``__init__``, so changing a credential means building a *new* instance —
+    and the class is the only thing that can do that once the module has been
+    imported. See :func:`rebuild_instances` for why re-importing is not an
+    option.
+    """
 
     def __init__(self, cls: type[Provider]) -> None:
         if not issubclass(cls, Provider):
             raise TypeError(f"{cls!r} is not a Provider subclass")
         self.instance = cls()
+        with _LOCK:
+            _CLASSES[self.instance.id] = cls
         register_provider(self.instance)
 
     def __call__(self, *args: Any, **kwargs: Any) -> Provider:
@@ -52,10 +68,43 @@ class register:  # noqa: N801 - decorator reads better lowercase
 def register_provider(provider: Provider) -> Provider:
     with _LOCK:
         existing = _REGISTRY.get(provider.id)
-        if existing is not None and existing is not provider:
+        # Same id, different *class* is a genuine conflict worth shouting about.
+        # Same class, different instance is a rebuild, which is routine.
+        if existing is not None and type(existing) is not type(provider):
             log.warning("provider id %s replaced by %s", provider.id, type(provider).__name__)
         _REGISTRY[provider.id] = provider
     return provider
+
+
+def rebuild_instances() -> int:
+    """Build a fresh instance for every registered provider class.
+
+    This is how a newly saved credential takes effect. It is *not* done by
+    clearing the registry and re-importing the modules: provider modules are
+    ordinary imports, Python caches them in ``sys.modules``, and their
+    ``@register`` decorators therefore never run a second time. That mistake
+    empties the registry silently — the first time a user saves an API key the
+    whole product loses every provider, with no error and no load failure to
+    point at.
+
+    Returns the number of instances rebuilt. A class that cannot be constructed
+    is recorded in :func:`load_failures` and skipped, so one broken provider
+    cannot take the rest down with it.
+    """
+    ensure_loaded()
+    with _LOCK:
+        classes = dict(_CLASSES)
+    built = 0
+    for provider_id, cls in classes.items():
+        try:
+            instance = cls()
+        except Exception as exc:  # noqa: BLE001 - recorded, then reported
+            _LOAD_FAILURES[provider_id] = f"{type(exc).__name__}: {exc}"
+            log.error("failed to rebuild provider %s: %s", provider_id, exc)
+            continue
+        register_provider(instance)
+        built += 1
+    return built
 
 
 def load_failures() -> dict[str, str]:
@@ -177,5 +226,11 @@ def available(provider_type: ProviderType | str) -> list[Provider]:
 
 
 def clear() -> None:
+    """Drop every provider *instance*. The class table survives on purpose.
+
+    Emptying the registry is not the same as forgetting which providers exist —
+    otherwise the only way back would be a re-import, which cannot work. Use
+    :func:`rebuild_instances` to repopulate.
+    """
     with _LOCK:
         _REGISTRY.clear()

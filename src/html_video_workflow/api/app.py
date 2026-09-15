@@ -37,12 +37,14 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    from .routes import projects, system, v1
+    from .routes import desktop, projects, setup, system, v1
     from .studio import mount_studio
 
     app.include_router(system.router)
     app.include_router(projects.router)
     app.include_router(v1.router)
+    app.include_router(setup.router)
+    app.include_router(desktop.router)
 
     @app.get("/health", tags=["system"])
     def health() -> dict:

@@ -7,7 +7,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from ...config.paths import repo_root
+from ...config.paths import resource_dir
 from ...utils.audio import wav_duration
 from ...utils.logging import get_logger
 from ..base import (
@@ -26,7 +26,7 @@ from ..registry import register
 
 log = get_logger("providers.tts.sapi")
 
-SAPI_SCRIPT = repo_root() / "scripts" / "sapi_tts.ps1"
+SAPI_SCRIPT = resource_dir() / "scripts" / "sapi_tts.ps1"
 
 #: Installed voices, read once per process.
 #:
@@ -115,7 +115,7 @@ class SAPIProvider(TTSProvider):
             result = subprocess.run(
                 ["powershell", "-NoProfile", "-NonInteractive", "-Command", command],
                 capture_output=True,
-                text=True,
+                text=True, errors="replace",
                 timeout=45,
             )
         except (OSError, subprocess.SubprocessError):
@@ -262,7 +262,7 @@ class SAPIProvider(TTSProvider):
 
         started = time.perf_counter()
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+            result = subprocess.run(cmd, capture_output=True, text=True, errors="replace", timeout=180)
         except subprocess.TimeoutExpired as exc:
             raise ProviderTimeout(
                 "SAPI synthesis timed out", provider=self.id, fallback="mock_tts"

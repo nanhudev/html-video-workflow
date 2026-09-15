@@ -80,6 +80,9 @@ a { color: var(--accent); text-decoration: none; }
 
 /* ------------------------------------------------------------------ main */
 .main { overflow-y: auto; padding: 26px 32px 60px; }
+/* The wizard lays itself out edge to edge and owns its own scrolling; padding
+   here would fight its sticky footer and leave a grey band under it. */
+.main.bleed { padding: 0; overflow: hidden; display: flex; flex-direction: column; }
 .page-title { font-size: 22px; font-weight: 700; margin: 0 0 4px; }
 .page-sub { color: var(--muted); margin: 0 0 22px; }
 
