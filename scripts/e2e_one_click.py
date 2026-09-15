@@ -43,7 +43,12 @@ STATUSES: list[tuple[str, str, str]] = []
 def remember(context: str, state: str, description: str) -> None:
     """Queue a status, and print it so the log is useful when it is readable."""
     text = " ".join((description or "").split())
-    print(f"[status] {context} -> {state}: {text}", flush=True)
+    try:
+        print(f"[status] {context} -> {state}: {text}", flush=True)
+    except Exception:  # noqa: BLE001
+        # A console that cannot encode a provider's Chinese error message must
+        # not cost us the status itself — the status is the whole point.
+        pass
     STATUSES.append((context, state, text))
 
 
@@ -179,6 +184,17 @@ def report() -> None:
 
 
 if __name__ == "__main__":
+    # Windows hands a piped stdout the locale encoding. A provider's Chinese
+    # error text — or the arrow in a routing explanation — is not in cp1252, and
+    # an encoding failure while *reporting* would look exactly like a broken
+    # pipeline. Relax the failure mode before anything is written.
+    try:
+        from html_video_workflow.utils.console import make_streams_unfailing
+
+        make_streams_unfailing()
+    except Exception:  # noqa: BLE001 - reporting must survive even this
+        pass
+
     code = 1
     try:
         code = main()

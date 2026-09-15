@@ -26,7 +26,10 @@ SHAPE = {"width": 320, "height": 180, "duration_sec": 6, "scenes": 1}
 
 def remember(context: str, state: str, description: str) -> None:
     text = " ".join((description or "").split())
-    print(f"[status] {context} -> {state}: {text}", flush=True)
+    try:
+        print(f"[status] {context} -> {state}: {text}", flush=True)
+    except Exception:  # noqa: BLE001 - the status outlives the console
+        pass
     STATUSES.append((context, state, text))
 
 
@@ -148,6 +151,16 @@ def report() -> None:
 
 
 if __name__ == "__main__":
+    # Windows hands a piped stdout the locale encoding, and a provider's error
+    # text here is Chinese. An encoding failure while reporting would be
+    # indistinguishable from a broken entry point, so relax the failure mode.
+    try:
+        from html_video_workflow.utils.console import make_streams_unfailing
+
+        make_streams_unfailing()
+    except Exception:  # noqa: BLE001 - reporting must survive even this
+        pass
+
     code = 1
     try:
         code = main()

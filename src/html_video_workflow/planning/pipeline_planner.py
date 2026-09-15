@@ -116,7 +116,7 @@ class PipelinePlanner:
             language=request.language,
             preset=route.get("preset", request.preset),
             llm=route["selection"].get("llm"),
-            tts=route["selection"].get("tts"),
+            tts=self._voice(request, route, warnings),
             renderer=self._renderer(request, route, reasons, warnings),
             subtitle=route["selection"].get("subtitle"),
             reasons=reasons,
@@ -266,6 +266,64 @@ class PipelinePlanner:
         for stage, provider in (route.get("selection") or {}).items():
             out.append(f"{stage} → {provider or 'NONE AVAILABLE'}")
         return out
+
+    def _voice(self, request: CreateVideoRequest, route: dict[str, Any],
+               warnings: list[str]) -> str | None:
+        """Never let a placeholder tone stand in for narration without saying so.
+
+        A placeholder is the correct choice when nothing else can run — the job
+        still has to produce a video. But it is a *silent* failure by nature: the
+        tone has the narration's duration, so the audio quality check passes, the
+        render reports success, and the only trace is one word in the provider
+        list. A user who asked for Chinese narration gets a video with a beep in
+        it and no indication that anything went wrong.
+
+        So the fact is promoted to a warning, and the warning names the language
+        that could not be spoken, because that is the actionable part — it tells
+        the user what to install rather than merely that something is missing.
+        """
+        selected = (route.get("selection") or {}).get("tts")
+        if not selected or not self._is_placeholder_voice(selected):
+            return selected
+
+        refused = self._language_refusals(route, "tts", request.language)
+        if refused:
+            warnings.append(
+                f"no installed voice speaks {request.language}: narration falls "
+                f"back to {selected}, which is a placeholder tone rather than "
+                f"speech — install a {request.language} voice for audible "
+                f"narration (declined for language: {', '.join(refused)})")
+        else:
+            warnings.append(
+                f"narration routed to {selected}, a placeholder tone rather "
+                f"than speech — the video will have no spoken audio")
+        return selected
+
+    @staticmethod
+    def _is_placeholder_voice(provider_id: str) -> bool:
+        """Read the placeholder claim from the provider's own spec tags."""
+        try:
+            from ..providers.registry import get as get_provider
+
+            tags = getattr(getattr(get_provider(provider_id), "spec", None), "tags", ())
+        except Exception:  # noqa: BLE001 - absence is a real outcome, not a crash
+            return False
+        return "low_fidelity" in (tags or ())
+
+    @staticmethod
+    def _language_refusals(route: dict[str, Any], stage: str,
+                           language: str | None) -> list[str]:
+        """Which providers declined this stage because of the language.
+
+        Read back out of the routing explanation rather than recomputed, so the
+        warning and the decision can never disagree about who was rejected.
+        """
+        if not language:
+            return []
+        rows = ((route.get("reasons") or {}).get(stage) or {}).get("candidates") or []
+        needle = f"does not support {language}"
+        return [str(row.get("id")) for row in rows
+                if needle in " ".join(row.get("reason") or [])]
 
     def _renderer(self, request: CreateVideoRequest, route: dict[str, Any],
                   reasons: list[str], warnings: list[str]) -> str | None:

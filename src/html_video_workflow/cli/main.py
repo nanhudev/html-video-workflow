@@ -29,6 +29,7 @@ from ..providers.base import ProviderType
 from ..providers.registry import all_providers, by_type, capabilities
 from ..runtime.engine import VideoRuntime, get_runtime
 from ..sources import resolve_source
+from ..utils.console import make_streams_unfailing
 from ..utils.logging import configure_logging, get_logger
 
 log = get_logger("cli")
@@ -722,6 +723,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Before anything can print. A console that cannot encode one character of
+    # the output must not be able to turn a successful render into a failed
+    # command — see `make_streams_unfailing`.
+    make_streams_unfailing()
     load_env_file()
     parser = build_parser()
     args = parser.parse_args(argv)

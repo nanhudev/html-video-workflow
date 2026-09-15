@@ -273,6 +273,48 @@ def test_vertical_request_selects_a_vertical_capable_template() -> None:
     assert plan.template.supports_aspect("9:16")
 
 
+def test_a_locked_placeholder_voice_is_reported_not_hidden() -> None:
+    """Locking the mock is an instruction, and it comes with a warning.
+
+    The lock is honoured — CI relies on it to separate "the pipeline is broken"
+    from "this runner cannot speak". But choosing it means the video has no
+    narration, so the plan has to say so rather than quietly write a tone.
+    """
+    plan = PipelinePlanner().plan(
+        CreateVideoRequest(prompt="why local AI matters", tts="mock_tts"))
+    assert plan.tts == "mock_tts"
+    assert any("placeholder tone" in warning for warning in plan.warnings), \
+        plan.warnings
+
+
+def test_a_placeholder_chosen_by_routing_names_the_language_it_could_not_speak() -> None:
+    """The actionable half of the warning is *which* language has no voice.
+
+    "Something is missing" leaves the user with nothing to fix. Naming the
+    language tells them what to install, which is the only reason the warning is
+    worth reading. The refusals are read back out of the routing explanation
+    rather than recomputed, so this also asserts the two agree.
+    """
+    route = {
+        "selection": {"tts": "mock_tts"},
+        "reasons": {"tts": {"candidates": [
+            {"id": "sapi", "score": -1, "reason": ["does not support fr-FR"]},
+            {"id": "moss", "score": -1, "reason": ["Binary not found on PATH"]},
+            {"id": "mock_tts", "score": 12.9, "reason": ["low-fidelity placeholder"]},
+        ]}},
+    }
+    warnings: list[str] = []
+    selected = PipelinePlanner()._voice(
+        CreateVideoRequest(prompt="bonjour", language="fr-FR"), route, warnings)
+
+    assert selected == "mock_tts"
+    assert len(warnings) == 1
+    assert "fr-FR" in warnings[0]
+    assert "sapi" in warnings[0], "the provider that declined must be named"
+    assert "moss" not in warnings[0], \
+        "a provider that declined for another reason is not a language refusal"
+
+
 # ------------------------------------------------------------------- script
 def test_script_planner_is_deterministic() -> None:
     registry = get_registry()
@@ -565,6 +607,107 @@ def test_cli_topics_lists_angles(capsys) -> None:
 
     assert main(["topics", "讲讲向量数据库", "--count", "3"]) == 0
     assert capsys.readouterr().out.count("\n") >= 3
+
+
+# ------------------------------------------------- console encoding (Windows)
+def _run_cli(args: list[str], *, console_encoding: str | None) -> tuple[int, str, str]:
+    """Run the CLI in a child process with a chosen stdout encoding.
+
+    A child is required rather than ``main()`` in-process: the encoding is fixed
+    when the stream is created, so it cannot be simulated from inside.
+    """
+    import os
+    import subprocess
+    import sys
+
+    env = dict(os.environ)
+    if console_encoding is None:
+        env.pop("PYTHONIOENCODING", None)
+    else:
+        env["PYTHONIOENCODING"] = console_encoding
+    proc = subprocess.run(
+        [sys.executable, "-m", "html_video_workflow.cli.main", *args],
+        capture_output=True, env=env, timeout=600,
+    )
+    read = console_encoding or "utf-8"
+    return (proc.returncode,
+            proc.stdout.decode(read, errors="replace"),
+            proc.stderr.decode(read, errors="replace"))
+
+
+_DRY_RUN_ARGS = ["generate", "why local AI matters", "--width", "320",
+                 "--height", "180", "--duration", "6", "--scenes", "1",
+                 "--dry-run", "--json"]
+
+
+def test_an_unencodable_character_degrades_instead_of_raising() -> None:
+    """The mechanism, isolated from the CLI.
+
+    ``print`` raising is what turned a finished render into a failed command, so
+    the guarantee is asserted directly against a stream that cannot represent
+    the character.
+    """
+    import io
+
+    from html_video_workflow.utils.console import make_streams_unfailing
+
+    raw = io.BytesIO()
+    # newline="" disables \n -> os.linesep translation, so the assertion below
+    # can be exact on every platform.
+    stream = io.TextIOWrapper(raw, encoding="cp1252", errors="strict", newline="")
+    assert make_streams_unfailing((("stdout", stream),)) == ["stdout"]
+
+    stream.write("narration route: tts \u2192 sapi\n")  # raised before the fix
+    stream.flush()
+    # The arrow degrades; everything else, including the em-dash, survives.
+    assert raw.getvalue() == b"narration route: tts ? sapi\n"
+
+    # And the character cp1252 *can* represent is not degraded with it. Passing
+    # an em-dash through proves the relaxation is per-character, not a blanket
+    # replacement that would mangle the rest of the payload.
+    stream.write("route: renderer \u2014 advanced_html\n")
+    stream.flush()
+    assert raw.getvalue().endswith(b"route: renderer \x97 advanced_html\n")
+
+
+def test_the_cli_survives_a_console_that_cannot_encode_its_output(tmp_path) -> None:
+    """Regression: the CI one-click check failed on this and reported nothing.
+
+    Windows gives a *piped* stdout the locale encoding — cp1252 on an en-US
+    runner. ``--json`` output carries routing explanations containing ``→``,
+    which cp1252 cannot represent, so ``print`` raised ``UnicodeEncodeError``
+    inside the CLI's own error handler: exit 1, empty stdout, and a diagnostic
+    that read it as "the pipeline is broken". The MP4 had already been written.
+    """
+    args = [*_DRY_RUN_ARGS, "--out", str(tmp_path / "out")]
+    code, stdout, stderr = _run_cli(args, console_encoding="cp1252")
+    assert code == 0, stderr[-400:]
+    payload = json.loads(stdout)
+    assert payload["ok"], payload
+
+    # Non-vacuity. Without this the test would keep passing if routing
+    # explanations ever lost their non-ASCII characters, which is the thing
+    # being forced to degrade.
+    _, plain, _ = _run_cli(args, console_encoding=None)
+    assert any("\u2192" in reason for reason in json.loads(plain)["reasons"]), \
+        "routing explanations no longer contain a character cp1252 cannot encode"
+
+
+def test_the_cli_reports_a_voice_that_would_be_silent(tmp_path) -> None:
+    """A placeholder voice must never be a *silent* outcome.
+
+    A placeholder tone has the narration's duration, so audio QC passes and the
+    render reports success — the only trace is one word in a provider list. This
+    locks the request to the deterministic placeholder so the warning is
+    asserted on any machine, with or without a real voice installed.
+    """
+    args = [*_DRY_RUN_ARGS, "--out", str(tmp_path / "out"), "--tts", "mock_tts"]
+    code, stdout, _ = _run_cli(args, console_encoding=None)
+    assert code == 0
+    payload = json.loads(stdout)
+    assert payload["providers"]["tts"] == "mock_tts"
+    assert any("placeholder tone" in warning for warning in payload["warnings"]), \
+        payload["warnings"]
 
 
 # -------------------------------------------------------------------- SDK

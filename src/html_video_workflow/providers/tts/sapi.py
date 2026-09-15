@@ -28,6 +28,28 @@ log = get_logger("providers.tts.sapi")
 
 SAPI_SCRIPT = repo_root() / "scripts" / "sapi_tts.ps1"
 
+#: Installed voices, read once per process.
+#:
+#: Enumerating them spawns a PowerShell process, and `capabilities()` reaches the
+#: enumeration through *both* `probe()` and `descriptor()` — while the router asks
+#: for every candidate's capabilities before it can rank them. Routing one job was
+#: starting dozens of shells: most of the planning latency, none of the
+#: information, since the installed voice set cannot change while we run.
+#:
+#: Held at module scope rather than on the class because ``@register`` *replaces*
+#: the class with a decorator object, so the name ``SAPIProvider`` no longer
+#: refers to a type and `SAPIProvider._VOICE_CACHE` raises. That failure is
+#: silent by design — the registry catches a broken capability probe and marks
+#: the provider unavailable — which turned a caching mistake into "SAPI does not
+#: exist on this machine".
+_VOICE_CACHE: list["VoiceInfo"] | None = None
+
+
+def reset_voice_cache() -> None:
+    """Drop the memo. For tests, and for tooling that installs a voice."""
+    global _VOICE_CACHE
+    _VOICE_CACHE = None
+
 
 @register
 class SAPIProvider(TTSProvider):
@@ -78,6 +100,9 @@ class SAPIProvider(TTSProvider):
         return super().capabilities()
 
     def _voices(self) -> list[VoiceInfo]:
+        global _VOICE_CACHE
+        if _VOICE_CACHE is not None:
+            return _VOICE_CACHE
         if platform.system() != "Windows" or not shutil.which("powershell"):
             return []
         command = (
@@ -105,6 +130,7 @@ class SAPIProvider(TTSProvider):
                 VoiceInfo(id=name.strip(), name=name.strip(),
                           language=culture.strip() or None, gender=gender.strip() or None)
             )
+        _VOICE_CACHE = voices
         return voices
 
     def list_voices(self) -> list[VoiceInfo]:

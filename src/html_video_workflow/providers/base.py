@@ -361,6 +361,31 @@ class TTSProvider(Provider):
             return capability
         if descriptor is None:
             return capability
+
+        # Languages are the one descriptor field that must *replace* the spec
+        # rather than merely decorate it. The spec declares what the engine can
+        # do; the descriptor reports what was found on this machine. Those are
+        # different statements: SAPI declares ``zh-CN`` on every Windows install
+        # because the Speech API supports it, but on an en-US-only box no
+        # installed voice speaks it. Routing on the declaration handed Chinese
+        # narration to an English voice and nobody heard the difference until the
+        # audio was listened to — which is exactly the failure `_language_match`
+        # exists to prevent.
+        #
+        # Narrowing is the direction the architecture permits: a probe may
+        # confirm or downgrade a declared claim, never upgrade it. So the
+        # intersection is taken first.
+        declared = list(capability.languages or ())
+        probed = list(getattr(descriptor, "languages", None) or ())
+        if declared and probed:
+            narrowed = [lang for lang in declared if lang in probed]
+            # An empty intersection is not "supports nothing" — reporting it as
+            # an empty list would read as ``undeclared``, which the router treats
+            # as a free pass and would *remove* the very check this exists to
+            # enforce. A contradicted claim is a correction, so the resolved
+            # truth replaces it.
+            capability.languages = narrowed or probed
+
         for key in (
             "supports_emotion", "supports_style", "supports_voice_clone",
             "supports_streaming", "supports_speed", "supports_pitch",

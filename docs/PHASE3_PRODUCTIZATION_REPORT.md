@@ -294,15 +294,107 @@ that predate this phase and assert things that are only true on Windows:
 Each is skipped or pinned with a stated reason, not deleted and not made to pass
 by weakening the assertion.
 
+## 8b. What the CI diagnosis found: two silent failures
+
+§7's self-reporting paid for itself on its first run. The `e2e/*` commit statuses
+named the one-click failure outright, with no runner log access:
+
+```
+e2e/cli/stderr  failure  …_workflow.cli | UnicodeEncodeError: 'charmap' codec
+                 can't encode character '\u2192' in position 848
+e2e/sdk         success  positional prompt -> 239854 bytes
+e2e/rest        success  wait=true -> MP4; wait=false -> job_…; unknown job -> 404
+e2e/mcp         success  6 tools; create_video produced e2e-out-mcp\…mp4
+```
+
+So the product worked — SDK, REST and MCP all produced real MP4s on the runner —
+and only the CLI path failed, for a reason that had nothing to do with rendering.
+
+### Defect 1 — the CLI died reporting a success
+
+Windows gives a *piped* stdout the locale encoding: **cp1252** on an en-US
+runner, cp936 on a Chinese desktop. `--json` output embeds routing explanations
+that contain `→` (U+2192). cp936 has that character; cp1252 does not. So `print`
+raised `UnicodeEncodeError` *after* the MP4 had been written, the CLI's own
+error handler caught it and returned 1, and stdout arrived empty — which the
+harness read as "the pipeline is broken".
+
+This is why it passed locally and failed on CI, and it was invisible until the
+statuses existed. The fix relaxes the *failure mode* of the streams rather than
+their encoding: forcing UTF-8 would turn correctly rendered Chinese into mojibake
+on a Chinese console, breaking the common case to rescue the rare one. An
+unencodable glyph now degrades to a substituted character (`utils/console.py`),
+which keeps the JSON parseable — and the em-dash in the same payload, which
+cp1252 *can* represent, is still written verbatim.
+
+### Defect 2 — a placeholder voice was winning, silently
+
+Investigating the CLI path turned up a worse defect underneath it. On a machine
+with a real Chinese voice installed:
+
+```
+$ html-video providers            # this machine
+OK  tts  sapi    SAPI available with 2 voices
+```
+
+and yet the documented one-click command, whose default language is `zh-CN`,
+planned `tts: mock_tts` — a placeholder tone. Not a *loud* failure: the tone is
+generated at the narration's estimated length, so audio QC passed, the render
+returned `ok: true`, and the only trace was one word in the provider list.
+
+Two independent causes, both now fixed:
+
+1. **A weight cannot enforce a guarantee.** `mock_tts` declares
+   `low_fidelity`, meaning "choose me only if nothing real is left" — but the
+   router expressed that as a *scoring penalty*, and a penalty only makes the
+   mock usually lose. `mock_tts` scores 10/10 on speed, which beat `sapi` under
+   both `balanced` (12.85 vs 12.5) and `fast`. Placeholders are now excluded from
+   selection while any real provider is usable, with an explicit exemption for a
+   user lock so `--tts mock_tts` still means what it says.
+2. **The language claim was never verified.** `sapi` declares
+   `languages=["zh-CN", "en-US"]` unconditionally, because the Windows Speech
+   API supports both — while the *installed* voices are what a machine can
+   actually say. `TTSProvider.capabilities()` folded the descriptor's feature
+   flags into the capability but kept the spec's language list, so the router
+   decided on the declaration. `sapi.descriptor()` had derived languages from
+   `GetInstalledVoices()` all along; the router simply never saw it. The
+   capability now takes the intersection of declared and probed — a probe may
+   narrow a claim, never widen it — and a claim contradicted outright is
+   replaced rather than emptied, because an empty list reads as "undeclared" and
+   would *remove* the language check instead of tightening it.
+
+The verification that the earlier assumption lacked:
+
+```
+$ python -c "…sapi.list_voices()…"
+Microsoft Huihui Desktop | zh-CN | Female      <- it does speak Chinese
+Microsoft Zira Desktop   | en-US | Female
+```
+
+The previous revision of this report asserted that zh-CN routing to `mock_tts`
+was "correct rather than broken — SAPI's two voices are English". That was an
+assumption about the machine, contradicted by the machine. Enumerating the voices
+took one command; the assumption had survived a whole phase. It is corrected here
+rather than quietly dropped.
+
+A placeholder is still selected when nothing real is available — that is the
+point of it, and it is asserted by a test against a pool containing only
+placeholders — but it can no longer be *silent*: the plan carries a warning
+naming the language that has no voice, and the providers that declined for that
+reason, so the message says what to install instead of only that something is
+missing.
+
 ## 9. Known issues
 
-- **The one-click E2E is red on `windows-latest`.** Every other job is green
-  (17 of 18), including the full suite, the wheel build and the Studio build.
-  The CLI `generate` step fails on the runner and succeeds locally with the same
-  command, so it is an environment difference that has not yet been identified
-  — the reporting added in §7 is what will name it, because the runner's log is
-  not readable from here. Not to be closed by pinning a provider until the
-  actual failure is known.
+- **Critic findings are not yet acted upon.** `VisualDesignCritic` emits
+  `AA-001…AA-012`; nothing consumes them to change a layout. `AA-012`
+  ("nothing moves continuously") still fires on every scene rendered so far,
+  because the motion chooser never reaches `parallax`/`drift`.
+- **A language no provider declares leaves the TTS stage empty.** A `fr-FR`
+  request selects no TTS provider at all; the router logs a warning and the plan
+  proceeds with narration unassigned. It is not *silent* — the routing
+  explanation records every refusal — but it is not yet a first-class warning
+  either, unlike the placeholder case above.
 - **Local verification must not be trusted for CI claims.** The D: virtualenv's
   `site-packages` was destroyed mid-session (pip, fastapi, httpx, anyio,
   httpcore, attrs, packaging all hollowed to empty namespace directories) by a
@@ -311,28 +403,27 @@ by weakening the assertion.
   performs no uninstalls, which is why the rebuild survived. Tests themselves
   never depended on it — `pyproject.toml` sets `pythonpath = ["src"]`, so pytest
   imports the working tree directly.
-- **Critic findings are not yet acted upon.** `VisualDesignCritic` emits
-  `AA-001…AA-012`; nothing consumes them to change a layout. `AA-012`
-  ("nothing moves continuously") still fires on every scene.
-- **`--language zh-CN` routes to `mock_tts` even where SAPI is ready.** This is
-  correct rather than broken — SAPI's two voices are English, so a zh-CN request
-  has no real engine to route to — but it means a zh-CN one-click produces
-  placeholder audio on a machine that *looks* like it has a voice. Worth a
-  louder warning in the result.
 - **Local environment limitation:** the shell's safe-delete guard kills
   long-running child processes, so any local run must use D:,
   `TMP/TEMP/TMPDIR` pointed at D:, and the background runner. `head`, `tail` and
-  `bash` are not on the shim's PATH; drive the work from Python instead.
+  `bash` are not on the shim's PATH; drive the work from Python instead. A
+  foreground run also dies at the tool's 2-minute limit, which is not a test
+  failure and must not be read as one.
+- **`@register` replaces the provider class.** The decorator binds the module
+  name to a `register` *instance*, so `SomeProvider.anything` fails and the
+  registry converts that into "the provider is unavailable". It cost a detour
+  while adding a per-provider cache; class-level state must go at module scope.
 
 ---
 
 ## 10. Next
 
-1. Read the one-click failure off the `e2e/*` commit statuses and fix it.
-   Merge `phase3-productization` into `main` only when CI, the package build, the
-   Studio build and the one-click E2E are all green.
-2. Close the loop on critic findings — let a finding change a layout.
-3. Make "a zh-CN request fell back to a placeholder voice" a first-class warning
-   instead of something a caller has to infer from `providers`.
+1. Confirm the one-click E2E goes green on `windows-latest` with both defects
+   fixed, then merge `phase3-productization` into `main` — only when CI, the
+   package build, the Studio build and the one-click E2E are all green.
+2. Close the loop on critic findings — let a finding change a layout, starting
+   with `AA-012`.
+3. Promote "no provider can speak the requested language" to the same
+   first-class warning the placeholder case now has.
 4. Validate on real hardware — the RTX 2070 path, and a neural TTS engine —
    which CI cannot do by design.

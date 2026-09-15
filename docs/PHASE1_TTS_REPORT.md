@@ -129,6 +129,13 @@ tts high_quality  -> sapi         (correct: a real engine)
 renderer high_quality -> legacy_html   (mock_renderer demoted to 1.08)
 ```
 
+> **Superseded.** Reported as of Phase 1. The penalty demoted placeholders
+> without guaranteeing they could never win, and `tts fast -> mock_tts` was
+> recorded here as correct — it is not: a placeholder does not produce fast
+> speech, it produces no speech, and on a machine with a zh-CN voice installed
+> the same arithmetic handed Chinese narration to a beep under `balanced` too.
+> See **D-012** in `DECISIONS.md` for the rule that replaced it.
+
 Every decision carries `reason[]` describing why it won **and** why each other
 candidate lost; `cannot apply: emotion` is recorded rather than hidden.
 Fallback order is the declared chain first (deliberate degradation), then any

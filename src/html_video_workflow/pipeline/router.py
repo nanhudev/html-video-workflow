@@ -91,6 +91,10 @@ class Candidate:
     chosen: bool = False
     reason: list[str] = field(default_factory=list)
     capability: Capability | None = None
+    #: True when the provider calls itself a placeholder. Carried on the
+    #: candidate rather than recomputed at the point of selection, so the
+    #: selection rule and the explanation cannot drift apart.
+    placeholder: bool = False
 
 
 @dataclass
@@ -111,6 +115,7 @@ class RoutingDecision:
                     "id": c.id,
                     "score": round(c.score, 3),
                     "chosen": c.chosen,
+                    "placeholder": c.placeholder,
                     "reason": c.reason,
                 }
                 for c in self.candidates
@@ -299,6 +304,7 @@ def rank(
                     reason=["locked by user override", *([f"state={capability.state.value}"]
                                                           if not capability.available else [])],
                     capability=capability,
+                    placeholder=_is_low_fidelity(provider, capability),
                 )
             )
             continue
@@ -411,7 +417,8 @@ def rank(
         # quality-oriented preset on raw speed. They stay in the pool as a
         # guaranteed last resort, but they rank last whenever the user asked for
         # fidelity — and the reason says so, so the ranking is never mysterious.
-        if _is_low_fidelity(provider, capability):
+        placeholder = _is_low_fidelity(provider, capability)
+        if placeholder:
             score -= weights.fidelity_penalty
             reasons.append("low-fidelity placeholder provider")
 
@@ -421,14 +428,45 @@ def rank(
             reasons.append(f"~{capability.estimated_vram_mb}MB VRAM")
 
         candidates.append(
-            Candidate(id=provider.id, score=score, reason=reasons, capability=capability)
+            Candidate(id=provider.id, score=score, reason=reasons,
+                      capability=capability, placeholder=placeholder)
         )
 
     usable = [c for c in candidates if c.score >= 0]
     usable.sort(key=lambda c: c.score, reverse=True)
-    if usable:
-        usable[0].chosen = True
-    selected = usable[0].id if usable else None
+
+    # A placeholder is a guarantee, not a destination: `low_fidelity` is how a
+    # provider says "choose me only if nothing real is left". A weighted
+    # penalty cannot deliver that promise, because a penalty only makes the mock
+    # *usually* lose — and `mock_tts` scores 10/10 on speed, which is enough to
+    # beat a genuine engine under `balanced` and `fast`. The tone it produced had
+    # the right duration, so audio QC passed, the render reported `ok`, and the
+    # video shipped with no narration in it. So the rule is enforced here rather
+    # than left to arithmetic: while any real provider is usable, none of them
+    # can be outranked by a placeholder.
+    #
+    # An explicit lock is exempt. `--tts mock_tts` is an instruction — CI uses it
+    # to separate "the pipeline is broken" from "this runner cannot speak", and
+    # silently substituting a different engine there would make the diagnostic
+    # test something other than what it claims to test.
+    winner = usable[0] if usable else None
+    honoured_lock = bool(locked and winner is not None and winner.id == locked)
+    if winner is not None and not honoured_lock:
+        real = [c for c in usable if not c.placeholder]
+        if real and len(real) < len(usable):
+            demoted = ", ".join(c.id for c in usable if c.placeholder)
+            winner = real[0]
+            winner.reason.append(
+                f"preferred over placeholder(s) {demoted} — a placeholder is a "
+                f"last resort, never a destination")
+
+    # Exactly one winner, always. The locked branch above marks its candidate
+    # chosen, so leaving this implicit would let a lock and the rule each claim
+    # the job when they disagree.
+    for candidate in usable:
+        candidate.chosen = candidate is winner
+
+    selected = winner.id if winner else None
     if not selected:
         log.warning("no provider available for stage %s under preset %s", kind, preset)
     return RoutingDecision(

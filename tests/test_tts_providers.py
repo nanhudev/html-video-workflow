@@ -11,8 +11,10 @@ or a leaked API key is invisible in a green E2E render, so it gets tested here.
 from __future__ import annotations
 
 import json
+import tempfile
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
 
 import pytest
 
@@ -413,3 +415,149 @@ def test_capability_flag_only_yes_is_truthy():
     assert CapabilityFlag.YES.truthy
     assert not CapabilityFlag.NO.truthy
     assert not CapabilityFlag.UNKNOWN.truthy, "unknown must never read as support"
+
+
+# ------------------------------------------------- resolved language capability
+class _NarrowingProvider:
+    """A provider that declares more than this machine can actually say.
+
+    Modelled on SAPI, which declares ``zh-CN`` on every Windows install because
+    the Speech API supports it — while the voices installed on a given box may
+    be en-US only.
+    """
+
+    from html_video_workflow.providers.base import ProviderSpec as _Spec
+
+    spec = _Spec(
+        id="narrowing", type=ProviderType.TTS, name="Narrowing", vendor="test",
+        version="1.0.0", local=True, implementation="inprocess",
+        languages=["zh-CN", "en-US"],
+    )
+
+    def probe(self):
+        from html_video_workflow.providers.base import ProbeResult
+
+        return ProbeResult(state=ProbeState.READY, reason="stub")
+
+    def descriptor(self):
+        from html_video_workflow.providers.tts.contract import (
+            CapabilityFlag,
+            TTSProviderDescriptor,
+        )
+
+        return TTSProviderDescriptor(
+            id="narrowing", name="Narrowing", vendor="test", version="1.0.0",
+            implementation="inprocess", available=CapabilityFlag.YES, local=True,
+            languages=["en-US"],  # what the probe actually found
+            probed=True, reason="stub",
+        )
+
+
+def _narrowing_capability():
+    from html_video_workflow.providers.base import TTSProvider
+
+    class _Provider(_NarrowingProvider, TTSProvider):  # type: ignore[misc]
+        def synthesize(self, request):  # pragma: no cover - not exercised
+            raise NotImplementedError
+
+    return _Provider().capabilities()
+
+
+def test_a_probe_narrows_a_declared_language():
+    """The declared claim is what the engine *can* do; the probe is the truth.
+
+    Regression: the router read the declaration, so a Chinese request was routed
+    to an engine whose only installed voice was English. Wrong-language speech is
+    worse than an obvious placeholder, because it sounds like a working product
+    rather than a missing voice.
+    """
+    capability = _narrowing_capability()
+    assert capability.languages == ["en-US"], (
+        "a declared language with no installed voice must not survive the probe")
+
+
+def test_a_contradicted_claim_is_corrected_not_emptied():
+    """An empty intersection must not read as `undeclared`.
+
+    ``_language_match`` treats an empty language list as "support undeclared",
+    which the router lets through — so reporting an empty list here would
+    *remove* the language check instead of tightening it, the exact opposite of
+    what the probe learned.
+    """
+    from html_video_workflow.pipeline.router import _language_match
+
+    capability = _narrowing_capability()
+    match, note = _language_match(capability.languages, "zh-CN")
+    assert match == "none", f"zh-CN should be refused, got {match} ({note})"
+
+
+# ------------------------------------------------------------ speech vs a tone
+def _energy_spread(path) -> float:
+    """Normalised spread of short-window energy. A steady sine scores ~0.
+
+    Duration cannot separate speech from a placeholder — both providers scale
+    their output to the estimated narration length. Structure can: a tone holds
+    a constant amplitude, speech does not.
+    """
+    import math
+    import struct
+    import wave
+
+    with wave.open(str(path), "rb") as handle:
+        channels, rate, width = (handle.getnchannels(), handle.getframerate(),
+                                 handle.getsampwidth())
+        frames = handle.readframes(handle.getnframes())
+    if width != 2:
+        raise AssertionError(f"expected 16-bit samples, got {width * 8}-bit")
+
+    samples = struct.unpack(f"<{len(frames) // 2}h", frames)
+    if channels > 1:
+        samples = samples[::channels]
+    size = max(1, rate * 25 // 1000)  # 25 ms windows
+    rms = [math.sqrt(sum(s * s for s in samples[i:i + size]) / size)
+           for i in range(0, len(samples) - size, size)]
+    mean = sum(rms) / len(rms)
+    if mean <= 0:
+        return 0.0
+    return math.sqrt(sum((v - mean) ** 2 for v in rms) / len(rms)) / mean
+
+
+def test_the_placeholder_is_measurably_a_tone():
+    """The control. Without this, the test below proves nothing about *speech*.
+
+    `mock_tts` is the only provider that must sound like a tone, so it is the
+    calibration point: whatever threshold is used to call SAPI "speech" has to
+    reject this.
+    """
+    from html_video_workflow.providers.base import NarrationSpec, TTSRequest
+
+    target = Path(tempfile.mkdtemp(prefix="hvw-tone-")) / "mock.wav"
+    get("mock_tts").synthesize(TTSRequest(
+        narration=NarrationSpec(text="为什么本地 AI 很重要", language="zh-CN"),
+        output_path=str(target)))
+
+    assert _energy_spread(target) < 0.1, "the placeholder stopped sounding like a tone"
+
+
+@pytest.mark.skipif(
+    not get("sapi").capabilities().available,
+    reason="no SAPI on this platform, so there is no real voice to compare")
+def test_a_real_voice_produces_speech_not_a_tone():
+    """A ready voice must actually speak.
+
+    Regression guard for the whole point of the routing fix: if `sapi` were ever
+    routed to while producing a tone — or if its installed-voice list were wrong
+    — the pipeline would still report success, because a tone of the right length
+    passes audio QC. Only the waveform tells the truth.
+    """
+    from html_video_workflow.providers.base import NarrationSpec, TTSRequest
+
+    target = Path(tempfile.mkdtemp(prefix="hvw-speech-")) / "sapi.wav"
+    get("sapi").synthesize(TTSRequest(
+        narration=NarrationSpec(text="为什么本地 AI 很重要", language="zh-CN"),
+        output_path=str(target)))
+
+    spread = _energy_spread(target)
+    assert spread > 0.4, (
+        f"sapi output has the energy profile of a steady tone (spread {spread:.3f}); "
+        f"a real voice scores above 1.0")

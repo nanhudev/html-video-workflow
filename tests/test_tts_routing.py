@@ -128,18 +128,49 @@ def test_quality_presets_never_choose_a_placeholder(preset: str) -> None:
     assert decision.selected != "mock_tts"
 
 
-def test_fast_preset_may_still_choose_a_placeholder() -> None:
-    """Speed is the point of `fast`, so a placeholder is a legitimate answer.
+def test_a_placeholder_is_never_a_destination_while_anything_real_is_left() -> None:
+    """`low_fidelity` means "pick me only if nothing real is left".
 
-    The penalty must demote mocks under quality presets without removing them
-    from the pool entirely — they are the guaranteed last resort that keeps the
-    pipeline running on a machine with nothing installed.
+    This replaces an earlier test that asserted the opposite — that `fast` may
+    pick the mock because speed is its point. That was the wrong contract. A
+    placeholder does not produce fast speech, it produces *no* speech: the tone
+    it writes is the right length, so audio QC passes and the render reports
+    success, and the only trace is one word in a provider list. `mock_tts`
+    scores 10/10 on speed, which was enough to beat a genuine engine under
+    `balanced` and `fast` — so on this machine a Chinese request was narrated by
+    a beep while an installed zh-CN voice sat unused.
     """
     decision = rank(ProviderType.TTS, preset="fast", language="zh-CN",
                     hardware=_cpu_only())
+    if not _real_tts_available():
+        pytest.skip("no real TTS engine here, so only the mock could be chosen")
+    assert decision.selected is not None
+    assert decision.selected != "mock_tts"
+    chosen = next(c for c in decision.candidates if c.chosen)
+    assert not chosen.placeholder
+    assert any("last resort, never a destination" in reason
+               for reason in chosen.reason)
+
+
+def test_the_placeholder_survives_as_the_last_resort(monkeypatch) -> None:
+    """When nothing real is usable, the pipeline must still run.
+
+    The rule above must not be implemented by removing placeholders from the
+    pool — that would leave a machine with nothing installed unable to render at
+    all. This is the other half of the guarantee, and it is asserted against a
+    pool containing only placeholders so it holds on any machine.
+    """
+    from html_video_workflow.pipeline import router as router_module
+    from html_video_workflow.providers.registry import get as get_provider
+
+    mock = get_provider("mock_tts")
+    monkeypatch.setattr(router_module, "by_type", lambda _type: [mock])
+
+    decision = rank(ProviderType.TTS, preset="balanced", language="zh-CN",
+                    hardware=_cpu_only())
     assert decision.selected == "mock_tts"
     chosen = next(c for c in decision.candidates if c.chosen)
-    assert any("low-fidelity" in reason for reason in chosen.reason)
+    assert chosen.placeholder
 
 
 def test_renderer_quality_preset_avoids_the_placeholder() -> None:
@@ -149,7 +180,14 @@ def test_renderer_quality_preset_avoids_the_placeholder() -> None:
 
 
 def test_low_fidelity_penalty_scales_with_the_preset() -> None:
-    """The demotion must be a weight, not a hardcoded exclusion."""
+    """The demotion stays a weight; the *selection rule* is what guarantees it.
+
+    The two are complementary, not alternatives. The weight orders providers
+    inside the pool, which is what makes the explanation read sensibly. The rule
+    — a placeholder cannot be chosen while something real is usable — is what
+    makes the guarantee hold, because a weight can always be outscored and
+    `mock_tts`'s speed score is high enough to do exactly that.
+    """
     assert PRESETS["fast"].fidelity_penalty == 0.0
     assert PRESETS["high_quality"].fidelity_penalty > PRESETS["balanced"].fidelity_penalty
     assert PRESETS["max_quality"].fidelity_penalty > PRESETS["high_quality"].fidelity_penalty
@@ -279,6 +317,9 @@ def test_decision_is_serialisable_and_explains_itself() -> None:
     assert payload["selected"] is not None
     for candidate in payload["candidates"]:
         assert candidate["reason"], f"{candidate['id']} lost without a reason"
+        # Exposed so a caller — the Studio, the API, a support ticket — can tell
+        # a real engine from a stand-in without re-deriving it from tags.
+        assert "placeholder" in candidate
 
 
 def test_locked_provider_wins_regardless_of_score() -> None:

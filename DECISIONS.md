@@ -224,7 +224,7 @@ where `None` is easily conflated with `False` at every call site.
 
 ## D-010 — Presets carry a fidelity penalty so placeholders cannot win
 
-**Date:** 2026-09-15 · **Status:** accepted
+**Date:** 2026-09-15 · **Status:** accepted, amended by D-012
 
 **Context.** `mock_tts` declares `speed_score=10` because it is instant. That
 single field let it out-score every real engine, so `high_quality` — the preset a
@@ -245,6 +245,11 @@ weight joins the tuning surface.
 engine); lowering their speed score (a lie in the other direction, and it would
 break `fast`); letting the router sort by quality only (discards legitimate
 speed/latency trade-offs).
+
+> **Superseded in part by D-012.** The penalty was the right first move but it
+> cannot deliver the guarantee it was written to deliver, and the claim that
+> "`fast` still legitimately selects the mock" is no longer true. The tag and
+> the weight both survive; the *selection* rule is what enforces the guarantee.
 
 ---
 
@@ -269,3 +274,58 @@ is designed so an LLM planner can produce the same structure later.
 **Alternatives rejected.** LLM-planned prosody in v1 (not testable in CI, costs
 money per render, non-reproducible); hand-tuned per-scene SSML in the IR (leaks
 rendering detail into the model — forbidden by D-002).
+
+---
+
+## D-012 — A placeholder is a last resort, not a destination
+
+**Date:** 2026-09-15 · **Status:** accepted · **Amends:** D-010
+
+**Context.** D-010 demoted placeholders with a weighted penalty. It was not
+enough, and the failure it was meant to prevent happened anyway: on a machine
+with `Microsoft Huihui Desktop` (zh-CN) installed and ready, the documented
+one-click command — whose default language is `zh-CN` — planned `tts: mock_tts`.
+A weighted penalty only makes a placeholder *usually* lose. `mock_tts` scores
+10/10 on speed, which was enough to beat `sapi` under `balanced` (12.85 vs 12.5)
+and under `fast`. The tone it wrote had the narration's duration, so audio QC
+passed, the render returned `ok`, and the only trace was one word in the provider
+list. `low_fidelity` is documented as meaning "I am a guaranteed fallback, not a
+destination" — a claim the router was not honouring.
+
+A second, independent defect sat underneath it. `sapi` declares
+`languages=["zh-CN", "en-US"]` on every Windows install because the Speech API
+supports both, while what a machine can actually *say* is its installed voices.
+`TTSProvider.capabilities()` folded the descriptor's feature flags into the
+capability but kept the spec's language list, so the router decided on the
+declaration. `sapi.descriptor()` had derived languages from
+`GetInstalledVoices()` all along; the router never saw it.
+
+**Decision.**
+
+1. A candidate tagged `low_fidelity` cannot be **selected** while any
+   non-placeholder candidate is usable. It keeps its tag, keeps its penalty, and
+   keeps its place in `fallbacks` and in `reason[]` — it is excluded from the
+   winning position only. An explicit user lock (`--tts mock_tts`) is exempt.
+2. `Capability.languages` is the **intersection** of the declared list and the
+   probed one. A probe may narrow a claim, never widen it. A claim contradicted
+   outright is *replaced* by the probed set rather than emptied, because an empty
+   list reads as "undeclared", which the router lets through — that would remove
+   the language check instead of tightening it.
+3. A placeholder that does get selected — locked, or the only thing available —
+   produces a warning naming the language that has no voice and the providers
+   that declined for that reason.
+
+**Consequences.** A real voice is used whenever one exists, so a Chinese request
+is narrated by a Chinese voice instead of a beep. The guarantee no longer depends
+on how the weights happen to land, so retuning a preset cannot silently
+reintroduce the bug. `fast` no longer selects the mock on a machine that has an
+engine — "fast and silent" is not a product, and a user who wants a placeholder
+can still ask for it by name. Machines with nothing installed behave exactly as
+before, now asserted against a pool containing only placeholders.
+
+**Alternatives rejected.** Raising `fidelity_penalty` under `fast` (still
+arithmetic, still able to lose); hard-excluding placeholders from the candidate
+pool (strands a bare machine — the objection D-010 raised, and it still holds);
+defaulting `language` to `en-US` (hides the defect rather than fixing it);
+resolving languages from `descriptor()` at every call site (leaves the same
+divergence available to the next provider).

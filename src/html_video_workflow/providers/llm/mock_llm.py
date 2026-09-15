@@ -63,7 +63,14 @@ class MockLLMProvider(LLMProvider):
         naturalness_score=0.0,
         startup_cost="low",
         install_state="builtin",
-        tags=["mock", "ci", "offline"],
+        # ``low_fidelity`` is the same claim `mock_tts` and `mock_renderer`
+        # already make, and it was missing here. Without it the router could let
+        # this provider win a quality preset on speed alone (score 10/10), so on
+        # a machine that *does* have credentials the words would come from a
+        # placeholder while a real model sat idle. With no key installed this
+        # provider is still the only usable one, so nothing changes in the
+        # default configuration — which is exactly why the omission survived.
+        tags=["mock", "ci", "offline", "low_fidelity"],
     )
 
     def probe(self) -> ProbeResult:
