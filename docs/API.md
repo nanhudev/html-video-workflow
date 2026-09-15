@@ -226,3 +226,15 @@ Speech length is measured by one canonical estimator
 (`utils.audio.estimate_speech_seconds`: 5.2 CJK chars/s, ~13 latin chars/s).
 The planner, the storyboard and the audio stage all use it — never a private
 copy of the number.
+
+**That rate is optimistic for real speech.** Measured against `sapi`, the only
+working engine, actual audio came out **1.75× the estimate** — effectively ~2.7
+CJK chars/s at the default speaking rate, not 5.2. So `duration_match` warns on
+real-voice renders, and its `Δ` is a measurement of this constant rather than of
+the material.
+
+The estimate is load-bearing in the other direction too: `mock_tts` writes its
+tone at exactly this length, so on mock content the prediction and the audio
+agree *by construction*. Recalibrating the constant therefore changes the
+duration of every mock render and the timing of every scene, which is why it is
+recorded here as a known discrepancy rather than quietly adjusted.
