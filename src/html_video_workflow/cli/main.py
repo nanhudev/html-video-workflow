@@ -261,6 +261,8 @@ def _request_from_args(args: argparse.Namespace) -> CreateVideoRequest:
             language=args.language,
             platform=args.platform,
             aspect=args.aspect,
+            width=args.width,
+            height=args.height,
             duration_sec=args.duration,
             scenes=args.scenes,
             template=args.template,
@@ -587,6 +589,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--language", default="zh-CN")
     p.add_argument("--platform", choices=sorted(PLATFORM_PRESETS))
     p.add_argument("--aspect", choices=["16:9", "9:16", "1:1", "4:5", "3:4"])
+    p.add_argument("--width", type=int,
+                   help="override output width (e.g. 320 for a fast smoke test)")
+    p.add_argument("--height", type=int, help="override output height")
     p.add_argument("--duration", type=float, help="target duration in seconds")
     p.add_argument("--scenes", type=int)
     p.add_argument("--template")

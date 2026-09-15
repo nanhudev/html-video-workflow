@@ -196,6 +196,22 @@ class CreateVideoRequest(BaseModel):
     def _round_duration(cls, value: float | None) -> float | None:
         return round(value, 2) if value else value
 
+    @field_validator("prompt", "topic", "script", "title", mode="before")
+    @classmethod
+    def _blank_to_none(cls, value: Any) -> Any:
+        """Collapse whitespace-only input to ``None``.
+
+        ``"   "`` is truthy in Python, so a naive ``if self.prompt`` check lets a
+        blank prompt all the way into the planner, where it produces a video
+        about nothing instead of an error. Intent is a *semantic* property, and
+        a string of spaces carries no intent.
+        """
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            return value
+        return value.strip() or None
+
     @model_validator(mode="after")
     def _require_intent(self) -> CreateVideoRequest:
         if not any((self.prompt, self.topic, self.script,

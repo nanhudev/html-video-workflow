@@ -293,10 +293,20 @@ def test_script_respects_the_template_beat_order() -> None:
 
 
 def test_shrinking_a_script_keeps_the_opening_and_the_ending() -> None:
-    """A video that opens and closes badly is worse than a shorter one."""
+    """A video that opens and closes badly is worse than a shorter one.
+
+    The count asked for must be inside the template's declared range: this
+    template has a floor of 6, and asking for 4 legitimately clamps to 6. The
+    claim under test is about *which* beats survive the trim, not about
+    overriding the template's minimum.
+    """
     manifest = get_registry().get("documentary_walkthrough")
-    script = ScriptPlanner().build("某段历史", manifest=manifest, scene_count=4)
-    assert len(script.beats) == 4
+    full = manifest.clamp_scenes(None)
+    wanted = max(manifest.clamp_scenes(0), full - 2)
+    assert wanted < full, "this template must actually shrink for the test to mean anything"
+
+    script = ScriptPlanner().build("某段历史", manifest=manifest, scene_count=wanted)
+    assert len(script.beats) == manifest.clamp_scenes(wanted) == wanted
     assert script.beats[0].kind == manifest.beats[0]
     assert script.beats[-1].kind == manifest.beats[-1]
 
@@ -572,10 +582,14 @@ def test_suggest_topics_helper_works_offline() -> None:
 # ------------------------------------------------- one entry point, one truth
 def test_all_entry_points_share_the_runtime_method() -> None:
     """The architectural claim, asserted: no entry point has its own pipeline."""
+    import importlib
     import inspect
 
     from html_video_workflow.api.routes import v1 as v1_module
-    from html_video_workflow.cli import main as cli_module
+    # Not `from ...cli import main`: the package re-exports a *function* named
+    # `main`, so that import yields the function and `getsource` would only see
+    # argparse plumbing, missing every handler.
+    cli_module = importlib.import_module("html_video_workflow.cli.main")
 
     assert "create_video" in inspect.getsource(v1_module).lower()
     assert "create_video" in inspect.getsource(cli_module).lower()
@@ -584,3 +598,150 @@ def test_all_entry_points_share_the_runtime_method() -> None:
         source = inspect.getsource(module)
         assert "stage_render" not in source
         assert "stage_compose" not in source
+
+
+# ------------------------------------------------- regressions: request intent
+@pytest.mark.parametrize("blank", ["", "   ", "\n", "\t", "  \n\t ", "\r\n"])
+def test_whitespace_only_intent_is_rejected(blank: str) -> None:
+    """``"   "`` is truthy in Python, so a naive truthiness check lets a blank
+    prompt reach the planner and produce a video about nothing. Intent is
+    semantic; a string of spaces carries none.
+    """
+    with pytest.raises(ValueError):
+        CreateVideoRequest(prompt=blank)
+    with pytest.raises(ValueError):
+        CreateVideoRequest(topic=blank)
+    with pytest.raises(ValueError):
+        CreateVideoRequest(script=blank)
+
+
+def test_a_real_prompt_survives_the_blank_filter() -> None:
+    """The fix must not eat legitimate input, including leading whitespace."""
+    assert CreateVideoRequest(prompt="  explain X  ").prompt == "explain X"
+
+
+# ------------------------------------------------- regressions: source contract
+def test_structured_dict_source_is_accepted() -> None:
+    """The public boundary advertises ``{"kind": ..., "value": ...}``.
+
+    Refusing that shape while the docs describe it means the API documents one
+    contract and the runtime enforces another.
+    """
+    documents = resolve_source({"kind": "text", "value": "some prose"})
+    assert documents and documents[0].kind == "text"
+
+    markdown = "# Title\n\n## Section A\n\n- fact one\n\nBody.\n"
+    documents = resolve_source({"kind": "markdown", "value": markdown})
+    assert documents[0].kind == "markdown"
+    assert "Section A" in documents[0].headings
+    assert "fact one" in documents[0].facts
+
+
+def test_markdown_kind_describes_the_value_not_a_path(tmp_path: Path) -> None:
+    """Inline markdown content is the obvious way to hand a planner a document.
+
+    Reading ``kind="markdown"`` as "go fetch this path" turned that into a
+    ``FileNotFoundError``. A path is only a path when one exists.
+    """
+    inline = resolve_source({"kind": "markdown", "value": "# A\n\n## B\n"})
+    assert inline[0].headings == ["A", "B"]
+
+    real = tmp_path / "doc.md"
+    real.write_text("# From Disk\n\n## Section\n", encoding="utf-8")
+    from_disk = resolve_source({"kind": "markdown", "value": str(real)})
+    assert from_disk[0].headings == ["From Disk", "Section"]
+
+
+def test_file_kind_still_raises_when_the_file_is_absent(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError):
+        resolve_source({"kind": "file", "value": str(tmp_path / "absent.md")})
+
+
+# ------------------------------------------- regressions: duration is honest
+def _script_total(topic: str, template: str, target: float | None) -> tuple[float, int]:
+    manifest = get_registry().get(template)
+    script = ScriptPlanner().build(topic, manifest=manifest,
+                                   target_duration_sec=target)
+    return script.total_duration, max(len(beat.narration) for beat in script.beats)
+
+
+def test_requested_duration_is_honoured_within_tolerance() -> None:
+    """Requesting 20s must not yield 32s.
+
+    The contract: ``duration_sec`` is a *target*, honoured within ±10%. When
+    the content cannot fit, the planner trims and warns — it never silently
+    rescales the clock to make the numbers agree.
+    """
+    for target in (20.0, 30.0):
+        total, _ = _script_total("向量数据库", "knowledge_primer", target)
+        assert abs(total - target) / target <= 0.10, (
+            f"asked for {target}s, planner produced {total}s")
+
+
+def test_a_target_the_material_cannot_fill_is_reported() -> None:
+    """A target can be missed in both directions.
+
+    Trimming fixes "too long". "Too short" cannot be fixed without padding the
+    video with dead air, so the honest move is to say so rather than return a
+    38-second video for a 45-second request and call it done.
+    """
+    manifest = get_registry().get("knowledge_primer")
+    script = ScriptPlanner().build("向量数据库", manifest=manifest,
+                                   target_duration_sec=45)
+    assert script.total_duration < 45.0
+    assert any("requested 45s" in warning for warning in script.warnings), (
+        f"expected a shortfall warning, got {script.warnings}")
+
+
+def test_shorter_target_trims_words_not_the_clock() -> None:
+    """Timing is downstream of the words.
+
+    The original bug rescaled ``duration_sec`` while leaving the narration long,
+    so the audio stage — which measures the text — produced a longer video than
+    requested. A tighter target must shorten the text.
+    """
+    _, long_chars = _script_total("向量数据库", "knowledge_primer", 60.0)
+    _, short_chars = _script_total("向量数据库", "knowledge_primer", 20.0)
+    assert short_chars < long_chars, (
+        "a 20s target must trim narration, not just relabel scene timings")
+
+
+@pytest.mark.parametrize("language,paragraph", [
+    ("zh-CN", "向量数据库把文本嵌入成高维向量，于是检索不再依赖关键词是否恰好命中，"
+              "而是比较语义之间的距离，这一点决定了它在长文档问答里的表现。"
+              "\n\n它并不是要取代关系型数据库，两者解决的是不同形状的问题，"
+              "把事务性查询交给前者、把相似检索交给后者，才是常见的组合方式。"),
+    ("en-US", "A vector database embeds text into high-dimensional vectors, so "
+              "retrieval no longer depends on whether a keyword happens to match "
+              "but on the distance between meanings, which is what decides how it "
+              "behaves in long-document question answering."
+              "\n\nIt is not meant to replace a relational database: the two solve "
+              "differently shaped problems, and handing transactional queries to "
+              "one while leaving similarity search to the other is the usual split."),
+])
+def test_planner_uses_the_canonical_speech_estimator(language: str,
+                                                     paragraph: str) -> None:
+    """One estimator, or the storyboard and the audio stage disagree.
+
+    Asserted against the *scene timings the planner actually emits*, not against
+    a constant: a planner that counts characters while the audio stage measures
+    speech seconds makes English scenes ~14% long, because the canonical
+    estimator ignores whitespace.
+    """
+    from html_video_workflow.utils.audio import estimate_speech_seconds
+
+    manifest = get_registry().get("knowledge_primer")
+    script = ScriptPlanner().build("t", manifest=manifest, language=language,
+                                   script_text=paragraph, target_duration_sec=30)
+    assert script.beats
+    for beat in script.beats:
+        expected = estimate_speech_seconds(beat.narration) + 0.9
+        # Compared against the documented timing formula, floor included: the
+        # 3s minimum scene length is a deliberate rule, not a rounding artefact.
+        assert beat.duration_sec == round(min(12.0, max(3.0, expected)), 2), (
+            f"{language}: scene timed {beat.duration_sec}s but the audio stage "
+            f"will measure {expected:.2f}s")
+    # At least one scene must clear the floor, or the assertion above would
+    # hold even if the estimator had never been consulted.
+    assert any(estimate_speech_seconds(beat.narration) > 2.1
+               for beat in script.beats)

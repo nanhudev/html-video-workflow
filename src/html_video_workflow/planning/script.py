@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ..sources.document import SourceDocument
 from ..templates.models import TemplateManifest
+from ..utils.audio import estimate_speech_seconds
 
 #: ``{t}`` = topic, ``{f}`` = a fact lifted from the source, ``{n}`` = index.
 _BEATS: dict[str, dict[str, dict[str, str]]] = {
@@ -465,10 +466,12 @@ class ScriptPlanner:
         max_chars = int(manifest.narration.get("max_chars_per_scene") or 130)
 
         budget = max_chars
+        per_beat: float | None = None
         if target and beats:
             # Reserve the inter-beat pause before dividing, or the sum overshoots.
             spendable = max(4.0, float(target) - 0.9 * len(beats))
-            budget = max(10, int(spendable * cps / len(beats)))
+            per_beat = spendable / len(beats)
+            budget = max(10, int(per_beat * cps))
             if budget < max_chars:
                 warnings.append(
                     f"narration trimmed to ~{budget} chars per scene to fit "
@@ -479,10 +482,26 @@ class ScriptPlanner:
             beat.narration = beat.narration.strip()
             if len(beat.narration) > budget:
                 beat.narration = _truncate(beat.narration, budget)
-            spoken = len(beat.narration) / cps
+            if per_beat is not None:
+                # Measure with the *same* estimator the audio stage uses.
+                # Counting characters here instead made English narration ~14%
+                # long, because the canonical estimator ignores whitespace.
+                beat.narration = _trim_to_seconds(beat.narration, per_beat, cps)
+            spoken = estimate_speech_seconds(beat.narration, cps)
             # +0.9s of breathing room: a cut that lands on the last syllable
             # reads as rushed, and the pause after is where the point lands.
             beat.duration_sec = round(min(12.0, max(3.0, spoken + 0.9)), 2)
+
+        if target and beats:
+            # Trimming can make a video shorter, never longer. A target the
+            # material cannot fill has to be *reported*, not quietly missed:
+            # padding the gap with held frames would just be dead air.
+            total = sum(beat.duration_sec for beat in beats)
+            if total < float(target) * 0.9:
+                warnings.append(
+                    f"narration fills only ~{total:.0f}s of the requested "
+                    f"{target:.0f}s; add material, more scenes or a shorter "
+                    f"target to close the gap")
         return beats
 
     def _fact_pool(self, documents: list[SourceDocument], topic: str,
@@ -554,6 +573,26 @@ def _headline_from_text(text: str, index: int) -> str:
     cleaned = re.sub(r"\s+", " ", text).strip()
     head = re.split(r"[。！？.!?]", cleaned)[0]
     return (head or cleaned)[:28] or f"第 {index} 段"
+
+
+def _trim_to_seconds(text: str, seconds: float, cps: float) -> str:
+    """Longest prefix of ``text`` that still fits ``seconds`` of speech.
+
+    A binary search rather than a proportional cut because the estimator is not
+    linear in string length — it charges CJK and latin characters at different
+    rates. Cutting ``len(text) * ratio`` lands either side of the budget
+    depending on which script the narration happens to be in.
+    """
+    if estimate_speech_seconds(text, cps) <= seconds:
+        return text
+    lo, hi = 1, len(text)
+    while lo < hi:
+        mid = (lo + hi) // 2
+        if estimate_speech_seconds(text[:mid], cps) > seconds:
+            lo = mid + 1
+        else:
+            hi = mid
+    return _truncate(text, lo)
 
 
 def _truncate(text: str, limit: int) -> str:

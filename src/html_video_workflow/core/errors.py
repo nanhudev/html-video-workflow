@@ -29,7 +29,10 @@ HTTP_STATUS: dict[str, int] = {
     VideoErrorCode.INVALID_REQUEST.value: 422,
     VideoErrorCode.NO_SOURCE.value: 400,
     VideoErrorCode.SOURCE_UNREADABLE.value: 400,
-    VideoErrorCode.NO_TEMPLATE.value: 422,
+    # A named template that does not exist is a missing *resource*, not a
+    # malformed request — 422 is reserved for input the server cannot parse or
+    # validate. Callers distinguish "you asked badly" from "that isn't there".
+    VideoErrorCode.NO_TEMPLATE.value: 404,
     VideoErrorCode.NO_PROVIDER.value: 503,
     VideoErrorCode.PLANNING_FAILED.value: 500,
     VideoErrorCode.RENDER_FAILED.value: 500,

@@ -10,8 +10,9 @@ import hashlib
 import re
 import urllib.error
 import urllib.request
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 from ..core.request import SourceInput
 from .document import SourceDocument, SourceKind, SourceSection
@@ -163,7 +164,17 @@ class MarkdownProvider(SourceProvider):
             ".md", ".markdown", ".rst"}
 
     def load(self, source: SourceInput) -> list[SourceDocument]:
-        raw = _read_local(source.value)
+        """``kind="markdown"`` says what ``value`` *is*, not where to fetch it.
+
+        Reading it as a path unconditionally meant inline markdown content —
+        the obvious way to hand a planner a document — raised
+        ``FileNotFoundError``. A path is only a path when one actually exists;
+        otherwise the value is the document.
+        """
+        path = Path(source.value)
+        raw = (_read_local(source.value)
+               if _looks_like_path(source.value) and path.exists()
+               else source.value)
         return _from_markdown(source, raw, kind="markdown")
 
 
@@ -283,8 +294,16 @@ def detect_kind(value: str) -> SourceKind:
     return "text"
 
 
-def resolve_source(source: SourceInput | str | None) -> list[SourceDocument]:
+def resolve_source(
+    source: SourceInput | str | Mapping[str, Any] | None,
+) -> list[SourceDocument]:
     """Resolve any supported input into documents.
+
+    A plain mapping is accepted and normalised here rather than at every call
+    site. JSON bodies, MCP arguments and CLI ``--source`` objects all arrive as
+    untyped dicts; if the public boundary advertises ``{"kind": ..., "value":
+    ...}`` then refusing that shape would mean the API documents one contract
+    and the runtime enforces another.
 
     Falls through to the text provider rather than raising: a URL we cannot
     classify is still text-shaped to a human, and the worst outcome is a video
@@ -295,6 +314,10 @@ def resolve_source(source: SourceInput | str | None) -> list[SourceDocument]:
         return []
     if isinstance(source, str):
         source = SourceInput(value=source)
+    elif isinstance(source, Mapping):
+        source = SourceInput(**dict(source))
+    elif isinstance(source, SourceDocument):  # already resolved; pass through
+        return [source]
     if not source.value:
         return []
     if source.kind != "auto":
