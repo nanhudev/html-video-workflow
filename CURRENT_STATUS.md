@@ -1,6 +1,11 @@
 # Current Status
 
-**Version:** 0.2.0 · **Phase:** Foundation complete · **Last verified:** 2026-09-15
+**Version:** 0.3.0 · **Phase:** One-click productization (PHASE 3) ·
+**Last verified:** 2026-09-15 · **Branch:** `phase3-productization`
+
+One prompt in, one MP4 out, through four entry points that share one
+implementation. See `docs/PHASE3_PRODUCTIZATION_REPORT.md` for the full account
+and `docs/API.md` for the contract.
 
 This file is a snapshot, not a plan. For direction see `ROADMAP.md`; for the
 reasons behind the architecture see `DECISIONS.md`.
@@ -14,13 +19,35 @@ Everything below was executed on the development machine, not inferred from code
 ### Test suite
 
 ```
-pytest tests -q          → 75 passed, 2 warnings
+pytest tests             → 324 passed, 0 failures, 0 errors, 0 skipped
 npm run typecheck        → clean
-npm run build            → built, 164.94 kB JS / 3.99 kB CSS
+npm run build            → built
 python scripts/export_schema.py --check  → OK (schema matches models)
 ```
 
-Run all three at once with `python scripts/dev.py test`.
+Read the count from the junit report (`--junitxml`), not the console: this
+runner kills long-lived child processes, so a console summary line is not
+trustworthy here. The full run takes ~12 minutes.
+
+CI is the authority. `.github/workflows/ci.yml` runs one job per test file on
+ubuntu, plus a package build, a frontend build, and a one-click E2E on
+`windows-latest` (the platform the renderer and voice stack actually target).
+
+### One-click generation
+
+```
+html-video generate "Why local AI matters" -o result.mp4
+```
+
+| Entry point | Status |
+|---|---|
+| CLI `generate` | works — real MP4, verified locally and in CI |
+| Python `create_video()` | works |
+| REST `POST /v1/videos` | works, `wait=true` and `wait=false` |
+| MCP `create_video` | works |
+| Studio Generate page | wired to the same Runtime |
+
+All five call `VideoRuntime.create_video()`. None has its own pipeline.
 
 ### Real end-to-end render
 
@@ -66,6 +93,7 @@ Accel  cuda=yes, vulkan=yes, directml=yes, metal=no, rocm_hip=n/a, coreml=n/a
 | `moss` | not installed | Binary not found on PATH: `moss-tts-nano` |
 | `mock_tts` | ready | Always available (mock) |
 | `legacy_html` | ready | `msedge` found |
+| `advanced_html` | ready | Consumes IR V2 directly; preferred over `legacy_html` |
 | `mock_renderer` | ready | Always available (mock) |
 | `local_asset` | ready | Filesystem always available |
 | `srt` | ready | Pure stdlib writer |
@@ -87,12 +115,13 @@ These are real and intentional at this phase.
 2. **TTS is SAPI only.** `sapi` is the sole working voice engine; `moss` is
    registered but reports absent. `mock_tts` writes a tone, and says so in its
    `message`, so it can never be mistaken for speech.
-3. **Single renderer.** `legacy_html` is the only non-mock renderer;
-   `advanced_html` is planned, not present.
-4. **One shot per scene.** The IR supports multiple shots; the pipeline renders
+3. **One shot per scene.** The IR supports multiple shots; the pipeline renders
    `shots[0]`.
-5. **`duration_match` warns.** Narration length and scene duration drift on mock
+4. **`duration_match` warns.** Narration length and scene duration drift on mock
    content. Expected until a real planner controls pacing.
+5. **Duration is a target.** A request the material cannot fill — or that falls
+   below the per-scene floor — is reported in `warnings`, never silently
+   substituted. See the duration contract in `docs/API.md`.
 6. **Virtual display adapters appear as GPUs.** `nvidia-smi` is preferred, but
    the CIM fallback also lists virtual adapters with unknown VRAM. They are not
    filtered out because the filter would also hide real secondary GPUs.
@@ -119,8 +148,9 @@ code. Every one has a regression test.
 
 Deliberately absent; each needs a decision record before it is added.
 
-- `advanced_html` renderer, avatar providers, image/video/music providers
+- Avatar providers, image/video/music providers
 - Model download/management (`html-video models pull`)
-- Agent layer, MCP server
+- Neural TTS beyond SAPI/MOSS
 - Cloud services, accounts, login, payments, marketplace
 - Timeline editor
+- Consuming `VisualDesignCritic` findings to change a layout

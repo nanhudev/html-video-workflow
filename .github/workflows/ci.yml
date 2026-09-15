@@ -342,6 +342,16 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev,api]"
 
+      # windows-latest does not ship ffmpeg on PATH. Composition cannot run
+      # without it, so it is installed here rather than worked around.
+      - name: Install ffmpeg
+        shell: pwsh
+        run: |
+          choco install ffmpeg --no-progress -y
+          $exe = (Get-Command ffmpeg.exe -ErrorAction Stop).Source
+          Add-Content -Path $env:GITHUB_PATH -Value (Split-Path -Parent $exe)
+          & $exe -version | Select-Object -First 1
+
       - name: Verify ffmpeg
         run: ffmpeg -version | head -n 1
 
