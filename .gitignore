@@ -6,3 +6,20 @@ outputs/
 *.mp4
 *.wav
 .env
+
+# Node / Studio frontend dependencies and build output.
+node_modules/
+dist/
+*.tsbuildinfo
+vite.config.ts.timestamp-*
+
+# Python test tooling caches.
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local run/application home (created by HVW_HOME).
+.hvw-home/
+
+# WorkBuddy agent memory for this project — not project source.
+.workbuddy/

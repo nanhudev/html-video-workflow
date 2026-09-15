@@ -1,0 +1,147 @@
+{
+  "schema_version": 2,
+  "id": "prj_example_ir_v2",
+  "project": {
+    "title": "IR V2 最小示例",
+    "subtitle": "Hand-written, renderer-neutral",
+    "language": "zh-CN",
+    "theme": "minimal-light",
+    "video_type": "explainer",
+    "visual_strategy": "typography_led",
+    "output_preset": "youtube_16x9"
+  },
+  "story": {
+    "logline": "A minimal IR V2 document that renders without any LLM.",
+    "beats": [
+      {
+        "id": "beat_1",
+        "label": "hook",
+        "intent": "state the point",
+        "scene_ids": ["scene_1"]
+      },
+      {
+        "id": "beat_2",
+        "label": "evidence",
+        "intent": "show the number",
+        "scene_ids": ["scene_2"]
+      }
+    ]
+  },
+  "sequences": [
+    {
+      "id": "seq_1",
+      "name": "Main",
+      "scenes": [
+        {
+          "id": "scene_1",
+          "intent": "Open with the claim, not a welcome",
+          "narration": {
+            "text": "一个视频项目首先是一份数据，而不是一段代码。",
+            "language": "zh-CN",
+            "emotion": "neutral",
+            "pace": 1.0,
+            "pause_after_ms": 420
+          },
+          "duration_hint_sec": 3.4,
+          "shots": [
+            {
+              "id": "shot_1",
+              "camera": { "move": "static" },
+              "layers": [
+                {
+                  "id": "l_eyebrow",
+                  "type": "text",
+                  "role": "label",
+                  "content": "VIDEO IR V2",
+                  "layout": { "x": 0.08, "y": 0.16, "width": 0.4, "anchor": "start" },
+                  "motion": { "semantic": "reveal" }
+                },
+                {
+                  "id": "l_headline",
+                  "type": "text",
+                  "role": "headline",
+                  "content": "项目是一份数据",
+                  "layout": { "x": 0.08, "y": 0.34, "width": 0.72, "anchor": "start" },
+                  "motion": { "semantic": "reveal" }
+                },
+                {
+                  "id": "l_body",
+                  "type": "text",
+                  "role": "body",
+                  "content": "渲染器只负责解释它，不负责决定它。",
+                  "layout": { "x": 0.08, "y": 0.58, "width": 0.6, "anchor": "start" },
+                  "motion": { "semantic": "focus" }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "scene_2",
+          "intent": "Land the one number that matters",
+          "narration": {
+            "text": "同一份项目，可以被两个不同的渲染器渲染出来。",
+            "language": "zh-CN",
+            "emotion": "neutral",
+            "pace": 1.05,
+            "pause_after_ms": 500
+          },
+          "duration_hint_sec": 4.6,
+          "shots": [
+            {
+              "id": "shot_2",
+              "camera": { "move": "push_in" },
+              "layers": [
+                {
+                  "id": "l_metric",
+                  "type": "text",
+                  "role": "metric",
+                  "content": "2",
+                  "layout": { "x": 0.1, "y": 0.3, "width": 0.35, "anchor": "start" },
+                  "motion": { "semantic": "count" }
+                },
+                {
+                  "id": "l_metric_label",
+                  "type": "text",
+                  "role": "annotation",
+                  "content": "个渲染器，零改动",
+                  "layout": { "x": 0.1, "y": 0.52, "width": 0.5, "anchor": "start" },
+                  "motion": { "semantic": "reveal" }
+                },
+                {
+                  "id": "l_caption",
+                  "type": "text",
+                  "role": "caption",
+                  "content": "同一份 IR，换渲染器不用改数据",
+                  "layout": { "x": 0.1, "y": 0.78, "width": 0.8, "anchor": "start" },
+                  "motion": { "semantic": "drift" }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "audio": {
+    "narration_provider": "auto",
+    "bgm": null,
+    "loudness_target_lufs": -16.0
+  },
+  "output": {
+    "width": 1280,
+    "height": 720,
+    "fps": 30,
+    "preset": "youtube_16x9",
+    "captions": { "mode": "burn_in", "position": "lower_third", "format": "srt" }
+  },
+  "quality": {
+    "min_duration_sec": 2.0,
+    "max_black_ratio": 0.15,
+    "require_audio": true
+  },
+  "provenance": {
+    "generator": "hand-written",
+    "created_by": "cli"
+  }
+}

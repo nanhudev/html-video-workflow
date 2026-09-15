@@ -1,0 +1,1369 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/nanhudev/html-video-workflow/schemas/video_ir_v2.schema.json",
+  "title": "VideoProject",
+  "description": "Renderer-neutral video project description. Layers carry {type, role, content, layout, motion} and must never contain renderer-specific tokens such as remotionComponent or cssClass.",
+  "$defs": {
+    "AssetRef": {
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "kind": {
+          "default": "image",
+          "title": "Kind",
+          "type": "string"
+        },
+        "origin": {
+          "default": "local",
+          "enum": [
+            "local",
+            "user",
+            "licensed_stock",
+            "generated",
+            "screenshot",
+            "recording",
+            "remote"
+          ],
+          "title": "Origin",
+          "type": "string"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Url"
+        },
+        "license": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "License"
+        },
+        "generated": {
+          "default": false,
+          "title": "Generated",
+          "type": "boolean"
+        },
+        "generator": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Generator"
+        },
+        "prompt": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prompt"
+        },
+        "sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sha256"
+        },
+        "created_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Created At"
+        },
+        "attribution": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Attribution"
+        }
+      },
+      "title": "AssetRef",
+      "type": "object"
+    },
+    "AudioSpec": {
+      "additionalProperties": true,
+      "properties": {
+        "narration_voice": {
+          "additionalProperties": true,
+          "title": "Narration Voice",
+          "type": "object"
+        },
+        "bgm": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bgm"
+        },
+        "sfx": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Sfx",
+          "type": "array"
+        },
+        "mix": {
+          "additionalProperties": true,
+          "title": "Mix",
+          "type": "object"
+        },
+        "loudness_target_lufs": {
+          "default": -16.0,
+          "title": "Loudness Target Lufs",
+          "type": "number"
+        }
+      },
+      "title": "AudioSpec",
+      "type": "object"
+    },
+    "Beat": {
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "t": {
+          "default": 0.0,
+          "title": "T",
+          "type": "number"
+        },
+        "kind": {
+          "default": "transition",
+          "title": "Kind",
+          "type": "string"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label"
+        },
+        "intent": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Intent"
+        }
+      },
+      "title": "Beat",
+      "type": "object"
+    },
+    "Brand": {
+      "additionalProperties": true,
+      "properties": {
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "colors": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Colors",
+          "type": "object"
+        },
+        "fonts": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Fonts",
+          "type": "object"
+        },
+        "logo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Logo"
+        }
+      },
+      "title": "Brand",
+      "type": "object"
+    },
+    "Camera": {
+      "additionalProperties": true,
+      "properties": {
+        "type": {
+          "default": "static",
+          "title": "Type",
+          "type": "string"
+        },
+        "intensity": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Intensity"
+        }
+      },
+      "title": "Camera",
+      "type": "object"
+    },
+    "Caption": {
+      "additionalProperties": true,
+      "properties": {
+        "text": {
+          "default": "",
+          "title": "Text",
+          "type": "string"
+        },
+        "position": {
+          "default": "lower_third",
+          "title": "Position",
+          "type": "string"
+        },
+        "safe_area": {
+          "default": true,
+          "title": "Safe Area",
+          "type": "boolean"
+        }
+      },
+      "title": "Caption",
+      "type": "object"
+    },
+    "CaptionSpec": {
+      "additionalProperties": true,
+      "properties": {
+        "mode": {
+          "default": "burn_in",
+          "enum": [
+            "none",
+            "burn_in",
+            "sidecar",
+            "both"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "format": {
+          "default": "srt",
+          "enum": [
+            "srt",
+            "ass",
+            "vtt"
+          ],
+          "title": "Format",
+          "type": "string"
+        },
+        "position": {
+          "default": "lower_third",
+          "title": "Position",
+          "type": "string"
+        },
+        "safe_area": {
+          "default": true,
+          "title": "Safe Area",
+          "type": "boolean"
+        }
+      },
+      "title": "CaptionSpec",
+      "type": "object"
+    },
+    "Layer": {
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "type": {
+          "default": "text",
+          "enum": [
+            "text",
+            "image",
+            "video",
+            "svg",
+            "html",
+            "chart",
+            "shape",
+            "avatar",
+            "effect",
+            "audio"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "enum": [
+                "headline",
+                "subhead",
+                "body",
+                "annotation",
+                "label",
+                "metric",
+                "evidence",
+                "background",
+                "foreground",
+                "logo",
+                "caption"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Role"
+        },
+        "content": {
+          "default": "",
+          "title": "Content",
+          "type": "string"
+        },
+        "src": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Src"
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Kind"
+        },
+        "typography": {
+          "$ref": "#/$defs/Typography"
+        },
+        "layout": {
+          "$ref": "#/$defs/Layout"
+        },
+        "motion": {
+          "$ref": "#/$defs/Motion"
+        },
+        "style": {
+          "additionalProperties": true,
+          "title": "Style",
+          "type": "object"
+        }
+      },
+      "title": "Layer",
+      "type": "object"
+    },
+    "Layout": {
+      "additionalProperties": true,
+      "properties": {
+        "x": {
+          "default": 0.08,
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "default": 0.2,
+          "title": "Y",
+          "type": "number"
+        },
+        "w": {
+          "default": 0.6,
+          "title": "W",
+          "type": "number"
+        },
+        "h": {
+          "default": 0.2,
+          "title": "H",
+          "type": "number"
+        },
+        "anchor": {
+          "default": "top_left",
+          "title": "Anchor",
+          "type": "string"
+        }
+      },
+      "title": "Layout",
+      "type": "object"
+    },
+    "Motion": {
+      "additionalProperties": true,
+      "properties": {
+        "enter": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Enter"
+        },
+        "duration_ms": {
+          "default": 600,
+          "title": "Duration Ms",
+          "type": "integer"
+        },
+        "delay_ms": {
+          "default": 0,
+          "title": "Delay Ms",
+          "type": "integer"
+        },
+        "easing": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Easing"
+        },
+        "semantic": {
+          "default": "reveal",
+          "enum": [
+            "reveal",
+            "count",
+            "trace",
+            "connect",
+            "split",
+            "depth",
+            "progression",
+            "focus",
+            "drift"
+          ],
+          "title": "Semantic",
+          "type": "string"
+        }
+      },
+      "title": "Motion",
+      "type": "object"
+    },
+    "NarrationIR": {
+      "additionalProperties": true,
+      "description": "Rich narration description; providers map whatever they support.",
+      "properties": {
+        "text": {
+          "default": "",
+          "title": "Text",
+          "type": "string"
+        },
+        "speaker": {
+          "default": "narrator",
+          "title": "Speaker",
+          "type": "string"
+        },
+        "language": {
+          "default": "zh-CN",
+          "title": "Language",
+          "type": "string"
+        },
+        "voice": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Voice"
+        },
+        "emotion": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Emotion"
+        },
+        "pace": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pace"
+        },
+        "pitch": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pitch"
+        },
+        "energy": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Energy"
+        },
+        "pause_before_ms": {
+          "default": 0,
+          "title": "Pause Before Ms",
+          "type": "integer"
+        },
+        "pause_after_ms": {
+          "default": 0,
+          "title": "Pause After Ms",
+          "type": "integer"
+        },
+        "emphasis": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Emphasis",
+          "type": "array"
+        },
+        "pronunciation": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Pronunciation",
+          "type": "object"
+        },
+        "style": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Style"
+        }
+      },
+      "title": "NarrationIR",
+      "type": "object"
+    },
+    "OutputSpec": {
+      "additionalProperties": true,
+      "properties": {
+        "preset": {
+          "default": "youtube_16x9",
+          "enum": [
+            "youtube_16x9",
+            "youtube_shorts_9x16",
+            "tiktok_9x16",
+            "instagram_reels_9x16",
+            "x_16x9",
+            "bilibili_16x9",
+            "xiaohongshu_3x4",
+            "wechat_channels_9x16",
+            "custom"
+          ],
+          "title": "Preset",
+          "type": "string"
+        },
+        "width": {
+          "default": 1280,
+          "title": "Width",
+          "type": "integer"
+        },
+        "height": {
+          "default": 720,
+          "title": "Height",
+          "type": "integer"
+        },
+        "fps": {
+          "default": 30,
+          "title": "Fps",
+          "type": "integer"
+        },
+        "bitrate_kbps": {
+          "default": 6000,
+          "title": "Bitrate Kbps",
+          "type": "integer"
+        },
+        "captions": {
+          "$ref": "#/$defs/CaptionSpec"
+        }
+      },
+      "title": "OutputSpec",
+      "type": "object"
+    },
+    "ProjectMeta": {
+      "additionalProperties": true,
+      "properties": {
+        "title": {
+          "default": "Untitled",
+          "title": "Title",
+          "type": "string"
+        },
+        "subtitle": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Subtitle"
+        },
+        "language": {
+          "default": "zh-CN",
+          "title": "Language",
+          "type": "string"
+        },
+        "video_type": {
+          "default": "explainer",
+          "enum": [
+            "explainer",
+            "product_demo",
+            "knowledge",
+            "news",
+            "data_story",
+            "tutorial",
+            "social_short",
+            "essay",
+            "documentary",
+            "avatar_presenter",
+            "music_visualizer",
+            "custom"
+          ],
+          "title": "Video Type",
+          "type": "string"
+        },
+        "style_profile": {
+          "default": "editorial",
+          "title": "Style Profile",
+          "type": "string"
+        },
+        "theme": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Theme"
+        },
+        "created_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Created At"
+        },
+        "updated_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Updated At"
+        }
+      },
+      "title": "ProjectMeta",
+      "type": "object"
+    },
+    "Provenance": {
+      "additionalProperties": true,
+      "properties": {
+        "generator": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Generator"
+        },
+        "prompts": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Prompts",
+          "type": "array"
+        },
+        "providers": {
+          "additionalProperties": true,
+          "title": "Providers",
+          "type": "object"
+        },
+        "created_by": {
+          "default": "cli",
+          "enum": [
+            "agent",
+            "studio",
+            "cli",
+            "api",
+            "mcp"
+          ],
+          "title": "Created By",
+          "type": "string"
+        }
+      },
+      "title": "Provenance",
+      "type": "object"
+    },
+    "QualitySpec": {
+      "additionalProperties": true,
+      "properties": {
+        "checks": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Checks",
+          "type": "array"
+        },
+        "report": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Report"
+        }
+      },
+      "title": "QualitySpec",
+      "type": "object"
+    },
+    "Scene": {
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "intent": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Intent"
+        },
+        "duration_hint_sec": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duration Hint Sec"
+        },
+        "narration": {
+          "$ref": "#/$defs/NarrationIR"
+        },
+        "visual_strategy": {
+          "default": "typography_led",
+          "enum": [
+            "typography_led",
+            "diagram_led",
+            "image_led",
+            "data_led",
+            "screen_led",
+            "avatar_led",
+            "broll",
+            "chart"
+          ],
+          "title": "Visual Strategy",
+          "type": "string"
+        },
+        "sources": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Sources",
+          "type": "array"
+        },
+        "transition": {
+          "$ref": "#/$defs/Transition"
+        },
+        "shots": {
+          "items": {
+            "$ref": "#/$defs/Shot"
+          },
+          "title": "Shots",
+          "type": "array"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        },
+        "body": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Body"
+        },
+        "eyebrow": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Eyebrow"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Tags",
+          "type": "array"
+        },
+        "metric": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Metric"
+        },
+        "metric_label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Metric Label"
+        }
+      },
+      "title": "Scene",
+      "type": "object"
+    },
+    "Sequence": {
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "intent": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Intent"
+        },
+        "scenes": {
+          "items": {
+            "$ref": "#/$defs/Scene"
+          },
+          "title": "Scenes",
+          "type": "array"
+        }
+      },
+      "title": "Sequence",
+      "type": "object"
+    },
+    "Shot": {
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "start": {
+          "default": 0.0,
+          "title": "Start",
+          "type": "number"
+        },
+        "duration": {
+          "default": 4.0,
+          "title": "Duration",
+          "type": "number"
+        },
+        "camera": {
+          "$ref": "#/$defs/Camera"
+        },
+        "caption": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Caption"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "layers": {
+          "items": {
+            "$ref": "#/$defs/Layer"
+          },
+          "title": "Layers",
+          "type": "array"
+        }
+      },
+      "title": "Shot",
+      "type": "object"
+    },
+    "SourceRef": {
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Url"
+        },
+        "retrieved_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Retrieved At"
+        },
+        "trust": {
+          "default": "unknown",
+          "enum": [
+            "user_provided",
+            "public_web",
+            "model",
+            "unknown"
+          ],
+          "title": "Trust",
+          "type": "string"
+        }
+      },
+      "title": "SourceRef",
+      "type": "object"
+    },
+    "Story": {
+      "additionalProperties": true,
+      "properties": {
+        "logline": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Logline"
+        },
+        "beats": {
+          "items": {
+            "$ref": "#/$defs/Beat"
+          },
+          "title": "Beats",
+          "type": "array"
+        }
+      },
+      "title": "Story",
+      "type": "object"
+    },
+    "Transition": {
+      "additionalProperties": true,
+      "properties": {
+        "type": {
+          "default": "cut",
+          "title": "Type",
+          "type": "string"
+        },
+        "duration_ms": {
+          "default": 0,
+          "title": "Duration Ms",
+          "type": "integer"
+        }
+      },
+      "title": "Transition",
+      "type": "object"
+    },
+    "Typography": {
+      "additionalProperties": true,
+      "properties": {
+        "size": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Size"
+        },
+        "weight": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Weight"
+        },
+        "align": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Align"
+        },
+        "tracking": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tracking"
+        },
+        "line": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Line"
+        }
+      },
+      "title": "Typography",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "properties": {
+    "schema_version": {
+      "default": 2,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Id"
+    },
+    "project": {
+      "$ref": "#/$defs/ProjectMeta"
+    },
+    "sources": {
+      "items": {
+        "$ref": "#/$defs/SourceRef"
+      },
+      "title": "Sources",
+      "type": "array"
+    },
+    "brand": {
+      "$ref": "#/$defs/Brand"
+    },
+    "output": {
+      "$ref": "#/$defs/OutputSpec"
+    },
+    "story": {
+      "$ref": "#/$defs/Story"
+    },
+    "sequences": {
+      "items": {
+        "$ref": "#/$defs/Sequence"
+      },
+      "title": "Sequences",
+      "type": "array"
+    },
+    "audio": {
+      "$ref": "#/$defs/AudioSpec"
+    },
+    "assets": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/AssetRef"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      ],
+      "title": "Assets"
+    },
+    "quality": {
+      "$ref": "#/$defs/QualitySpec"
+    },
+    "provenance": {
+      "$ref": "#/$defs/Provenance"
+    }
+  },
+  "type": "object"
+}

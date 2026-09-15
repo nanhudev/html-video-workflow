@@ -1,0 +1,46 @@
+"""Provider system: contracts, registry and built-in providers."""
+from .base import (
+    Capability,
+    ProbeResult,
+    ProbeState,
+    Provider,
+    ProviderError,
+    ProviderNotInstalled,
+    ProviderResult,
+    ProviderSpec,
+    ProviderTimeout,
+    ProviderType,
+    RenderFailed,
+    UnsupportedCapability,
+)
+from .registry import (
+    all_providers,
+    available,
+    by_type,
+    capabilities,
+    discover_builtins,
+    get as get_provider,
+    register,
+)
+
+__all__ = [
+    "Capability",
+    "ProbeResult",
+    "ProbeState",
+    "Provider",
+    "ProviderError",
+    "ProviderNotInstalled",
+    "ProviderResult",
+    "ProviderSpec",
+    "ProviderTimeout",
+    "ProviderType",
+    "RenderFailed",
+    "UnsupportedCapability",
+    "all_providers",
+    "available",
+    "by_type",
+    "capabilities",
+    "discover_builtins",
+    "get_provider",
+    "register",
+]

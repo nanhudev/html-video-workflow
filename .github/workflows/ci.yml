@@ -1,0 +1,190 @@
+name: CI
+
+# Hardware-agnostic by design.
+#
+# The core promise of this project is that providers are *claims* and probes are
+# *checks*. A machine with no GPU, no CUDA and no downloaded model is therefore
+# a perfectly valid place to run the whole test suite — every heavy provider
+# must degrade to an honest `UNAVAILABLE` rather than failing the build.
+#
+# What this workflow deliberately does NOT do:
+#   - download models (multi-GB, and it would make CI a licensing grey zone)
+#   - install torch / CUDA (the core must never depend on them)
+#   - call any paid API (no keys exist here, and a CI secret is not a test)
+#
+# What it proves instead: the contracts hold, the routing selects something
+# real, the IR round-trips, and a video can actually be assembled end to end
+# from mock audio. Real hardware validation is tracked separately in
+# docs/CURRENT_STATUS.md as `REAL HARDWARE VALIDATION PENDING`.
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONUNBUFFERED: "1"
+  # Keep every generated artifact inside the workspace. The project rule is
+  # "heavy files never land in the default home directory".
+  HVW_HOME: ${{ github.workspace }}/.hvw-home
+
+jobs:
+  python:
+    name: Python tests + schema
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install package and dev deps
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev,api]"
+
+      # ffmpeg is a hard dependency of the audio post-processing and the
+      # composition stage. Ubuntu's runner image ships it, but the version is
+      # pinned only loosely because the filters used (loudnorm, silenceremove,
+      # afade, zoompan) have been stable for years.
+      - name: Verify ffmpeg
+        run: ffmpeg -version | head -n 1
+
+      - name: Confirm the console entry point is installed
+        run: html-video --help
+
+      - name: Run tests
+        run: python -m pytest tests -q
+
+      - name: Verify IR V2 schemas match the models
+        run: python scripts/export_schema.py --check
+
+      - name: Provider registry loads with zero silent failures
+        # A provider module that fails to import used to be swallowed by a bare
+        # `except Exception`. That hid eight of nine providers. This step fails
+        # the build if anything disappears again.
+        run: |
+          python - <<'PY'
+          from html_video_workflow.providers.registry import load_failures, by_type
+          from html_video_workflow.providers.base import ProviderType
+
+          failures = load_failures()
+          if failures:
+              for name, why in failures.items():
+                  print(f"FAILED TO LOAD {name}: {why}")
+              raise SystemExit(f"{len(failures)} provider module(s) failed to import")
+
+          for kind in ("tts", "renderer", "llm", "subtitle"):
+              ids = [p.id for p in by_type(kind)]
+              print(f"{kind}: {ids}")
+              if not ids:
+                  raise SystemExit(f"no providers registered for {kind}")
+          PY
+
+  studio:
+    name: Studio typecheck + build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    defaults:
+      run:
+        working-directory: apps/studio
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/studio/package-lock.json
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+  smoke:
+    name: End-to-end smoke render
+    runs-on: ubuntu-latest
+    needs: python
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev,api]"
+
+      - name: Verify ffmpeg
+        run: ffmpeg -version | head -n 1
+
+      - name: Doctor must not claim anything it has not probed
+        # `doctor` uses `??` for installed-but-unusable and `--` for absent.
+        # A regression to a binary pass/fail would show up here as `OK` for a
+        # provider that cannot possibly be OK on a GPU-less runner.
+        run: html-video doctor
+
+      - name: Render a video end to end
+        # There is deliberately no attempt here to shrink the render below its
+        # default 1280x720: output geometry comes from the project's own
+        # `output` block, not from settings, and `settings.render.width` does
+        # NOT influence it. Faking a smaller frame would only make this comment
+        # a lie. A 4-scene video composites in well under the job timeout.
+        run: html-video create "CI smoke test" --preset fast --render
+
+      - name: ffprobe the artifact
+        # The only acceptable proof that a video exists is ffprobe being able to
+        # read a video stream with a plausible duration out of it.
+        run: |
+          set -euo pipefail
+          video=$(find . -name "*.mp4" -print -quit)
+          if [ -z "$video" ]; then
+            echo "no mp4 produced"
+            exit 1
+          fi
+          echo "artifact: $video"
+          ffprobe -v error -select_streams v:0 \
+            -show_entries stream=codec_name,width,height \
+            -show_entries format=duration \
+            -of default=noprint_wrappers=1 "$video"
+          duration=$(ffprobe -v error -show_entries format=duration \
+            -of default=noprint_wrappers=1:nokey=1 "$video")
+          python - "$duration" <<'PY'
+          import sys
+          duration = float(sys.argv[1])
+          if not 0.2 <= duration <= 30:
+              raise SystemExit(f"implausible duration: {duration}s")
+          print(f"duration ok: {duration:.2f}s")
+          PY
+
+      - name: Upload smoke artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-video
+          path: |
+            ${{ env.HVW_HOME }}/**/*.mp4
+            ${{ env.HVW_HOME }}/**/*.json
+          if-no-files-found: warn
+          retention-days: 7
