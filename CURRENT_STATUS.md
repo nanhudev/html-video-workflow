@@ -36,18 +36,29 @@ ubuntu, plus a package build, a frontend build, and a one-click E2E on
 ### One-click generation
 
 ```
-html-video generate "Why local AI matters" -o result.mp4
+html-video generate "Why local AI matters" --out out
 ```
 
 | Entry point | Status |
 |---|---|
-| CLI `generate` | works — real MP4, verified locally and in CI |
+| CLI `generate` | works — real MP4, verified locally |
 | Python `create_video()` | works |
 | REST `POST /v1/videos` | works, `wait=true` and `wait=false` |
 | MCP `create_video` | works |
-| Studio Generate page | wired to the same Runtime |
+| Studio Generate page | served by `html-video studio`, wired to the same Runtime |
 
 All five call `VideoRuntime.create_video()`. None has its own pipeline.
+
+Locally verified one-click, run on 2026-09-15:
+
+```
+320×180 · 8.88 s · 240 280 bytes · QC 9 pass / 1 warn (duration_match Δ3.12 s)
+providers  mock_llm · mock_tts · advanced_html · srt   fallbacks: none
+```
+
+`--scenes 1` is raised to 4 because `editorial_argument` is a four-beat
+structure, and 4 scenes cannot run shorter than ~12 s; the result carries a
+warning saying exactly that. See `docs/PHASE3_PRODUCTIZATION_REPORT.md`.
 
 ### Real end-to-end render
 

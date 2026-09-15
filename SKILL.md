@@ -23,15 +23,15 @@ capability can never exist in one and not another.
 ```python
 from html_video_workflow import create_video
 
-result = create_video("Why local AI matters", output="result.mp4")
+result = create_video("Why local AI matters", out_dir="out")
 result.ok, result.video_path, result.duration_sec
 ```
 
 ### CLI
 
 ```bash
-html-video generate "Why local AI matters" -o result.mp4
-html-video generate "..." --platform youtube_shorts_9x16 --duration 30
+html-video generate "Why local AI matters"
+html-video generate "..." --out out --platform youtube_shorts_9x16 --duration 30
 html-video generate "..." --dry-run        # plan only, no render
 ```
 
@@ -39,9 +39,13 @@ html-video generate "..." --dry-run        # plan only, no render
 
 ```http
 POST /v1/videos        # {"prompt": "..."}; wait=true blocks, wait=false returns a job id
-GET  /v1/videos/{id}   # job status
+GET  /v1/videos/{id}   # job status (404 + job_not_found when never issued)
 GET  /v1/templates     # the catalogue, machine-readable
 ```
+
+Start it with `html-video serve`. The same process also serves the Studio GUI
+at `/` when the frontend has been built, so `html-video studio` opens a usable
+web UI with no Node install.
 
 ### MCP
 
@@ -49,7 +53,7 @@ Use the `create_video` tool. Prefer it from any agent that has this server
 configured — it calls the same Runtime, not a wrapper around the CLI.
 
 Companions: `suggest_topics` (when the user has a domain but no angle),
-`list_templates`, `list_styles`, `get_job`.
+`list_templates`, `list_styles`, `list_platforms`, `video_status`.
 
 ## 2. What the runtime decides for you
 

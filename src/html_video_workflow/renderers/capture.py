@@ -47,7 +47,18 @@ class BrowserCapture:
     TIMEOUT_SEC = 180
 
     def __init__(self) -> None:
-        pass
+        #: Created lazily, one per capture session, and deliberately *fresh*:
+        #: a profile carried over from a previous render is a machine-specific
+        #: input, which is the one thing this module exists to remove.
+        self._profile_dir: str | None = None
+
+    def profile_dir(self) -> str:
+        """A writable, private browser profile for this capture session."""
+        import tempfile
+
+        if self._profile_dir is None:
+            self._profile_dir = tempfile.mkdtemp(prefix="hvw-browser-")
+        return self._profile_dir
 
     @staticmethod
     def _resolve_browser() -> Any:
@@ -85,13 +96,13 @@ class BrowserCapture:
                 reason="no Chromium-compatible browser available",
             )
 
-        from .determinism import DETERMINISTIC_BROWSER_FLAGS
+        from .determinism import browser_run_flags
 
         png_path = str(png_path)
         cmd = [
             browser.path,
             "--headless=new",
-            *DETERMINISTIC_BROWSER_FLAGS,
+            *browser_run_flags(self.profile_dir()),
             f"--window-size={width},{height}",
             f"--virtual-time-budget={settle_ms}",
             f"--screenshot={png_path}",
@@ -124,7 +135,7 @@ class BrowserCapture:
                 reason="no Chromium-compatible browser available",
             )
 
-        from .determinism import DETERMINISTIC_BROWSER_FLAGS
+        from .determinism import browser_run_flags
 
         outputs: list[str] = []
         step = max(1, duration_ms // max(1, frames))
@@ -134,7 +145,7 @@ class BrowserCapture:
             cmd = [
                 browser.path,
                 "--headless=new",
-                *DETERMINISTIC_BROWSER_FLAGS,
+                *browser_run_flags(self.profile_dir()),
                 f"--window-size={width},{height}",
                 # Enough virtual time to reach `target` plus layout settling.
                 f"--virtual-time-budget={target + 800}",

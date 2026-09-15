@@ -76,12 +76,16 @@ def list_videos() -> list[dict[str, Any]]:
 def get_video(job_id: str) -> VideoResult:
     result = get_runtime().job_result(job_id)
     if result is None:
-        _raise(VideoErrorCode.INVALID_REQUEST, f"unknown job: {job_id}")
+        _raise(VideoErrorCode.JOB_NOT_FOUND, f"unknown job: {job_id}")
     return result
 
 
 @router.get("/videos/{job_id}/events")
 def get_video_events(job_id: str) -> list[dict[str, Any]]:
+    # An empty list is the answer for a job that exists and has not started.
+    # For one that was never issued, saying "no events" would be a lie.
+    if get_runtime().job_result(job_id) is None:
+        _raise(VideoErrorCode.JOB_NOT_FOUND, f"unknown job: {job_id}")
     return get_runtime().job_events(job_id)
 
 

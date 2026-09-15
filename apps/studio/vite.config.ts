@@ -7,6 +7,9 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
+    // Every prefix the Studio actually calls has to be here. "/v1" was missing
+    // while src/api.ts was already posting to /v1/videos, so the Generate page
+    // worked in a production build and returned HTML in dev.
     proxy: {
       "/health": API_TARGET,
       "/system": API_TARGET,
@@ -17,6 +20,7 @@ export default defineConfig({
       "/validate": API_TARGET,
       "/routing": API_TARGET,
       "/benchmarks": API_TARGET,
+      "/v1": API_TARGET,
     },
   },
   build: { outDir: "dist", sourcemap: false },

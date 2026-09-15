@@ -518,9 +518,20 @@ def test_v1_topic_suggestions_return_ranked_angles(client) -> None:
 
 
 def test_v1_unknown_job_returns_a_structured_error(client) -> None:
+    """A job id that was never issued is a missing resource, not bad input.
+
+    This is the same rule ``GET /v1/templates/{id}`` follows, and the same one
+    ``/projects`` already followed. Keeping 422 here would tell an agent
+    "you asked badly" when it simply asked for something that isn't there.
+    """
     response = client.get("/v1/videos/job_does_not_exist")
-    assert response.status_code == 422
-    assert response.json()["detail"]["code"] == VideoErrorCode.INVALID_REQUEST.value
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == VideoErrorCode.JOB_NOT_FOUND.value
+
+
+def test_v1_events_for_an_unknown_job_are_a_404_not_an_empty_list(client) -> None:
+    assert client.get("/v1/videos/job_does_not_exist").status_code == 404
+    assert client.get("/v1/videos/job_does_not_exist/events").status_code == 404
 
 
 # ------------------------------------------------------------------ CLI
@@ -572,11 +583,185 @@ def test_python_sdk_accepts_a_request_object() -> None:
     assert result.project_id
 
 
+def test_python_sdk_takes_the_prompt_positionally() -> None:
+    """The form every document leads with has to actually work.
+
+    It used to be accepted and *discarded*: the wrapper only understood a
+    ``CreateVideoRequest`` in first position, so ``create_video("a prompt")``
+    built an empty request and failed with "nothing to make a video from" —
+    which points the reader at the wrong problem.
+    """
+    from html_video_workflow import create_video
+
+    result = create_video("讲讲向量数据库", dry_run=True)
+    assert result.ok
+    assert result.template
+
+
+def test_python_sdk_refuses_a_field_that_does_not_exist() -> None:
+    """`output=` used to be silently swallowed, because the model allows extras.
+
+    The README advertised it. A caller who passed it got a video in the default
+    location and no complaint, which is worse than an error.
+    """
+    from html_video_workflow import create_video
+
+    with pytest.raises(TypeError, match="output"):
+        create_video("讲讲向量数据库", output="result.mp4")
+
+
+@pytest.mark.parametrize("args", [
+    ("a prompt", "another prompt"),                    # two positionals
+    (123,),                                            # not a prompt or request
+    ("a prompt",),                                     # plus prompt= below
+])
+def test_python_sdk_refuses_ambiguous_calls(args: tuple) -> None:
+    from html_video_workflow import create_video
+
+    kwargs = {"prompt": "duplicate"} if len(args) == 1 and \
+        isinstance(args[0], str) else {}
+    with pytest.raises(TypeError):
+        create_video(*args, dry_run=True, **kwargs)
+
+
+def test_python_sdk_refuses_a_request_plus_keywords() -> None:
+    from html_video_workflow import create_video
+
+    with pytest.raises(TypeError, match="not both"):
+        create_video(CreateVideoRequest(prompt="x"), dry_run=True)
+
+
 def test_suggest_topics_helper_works_offline() -> None:
     from html_video_workflow import suggest_topics
 
     suggestions = suggest_topics("讲讲向量数据库", count=3)
     assert len(suggestions) == 3
+
+
+# ------------------------------------------------------------- the Studio
+def _fake_built_studio(root: Path) -> Path:
+    dist = root / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text("<!doctype html><title>studio</title>",
+                                     encoding="utf-8")
+    (dist / "assets" / "index-abc123.js").write_text("// built\n",
+                                                     encoding="utf-8")
+    return dist
+
+
+def test_a_built_studio_is_served_without_shadowing_the_api(
+        tmp_path, monkeypatch) -> None:
+    """The static mount at "/" must come after the routers.
+
+    A mount at "/" claims every path not already taken. Registering it before
+    the API routers would be invisible in a unit test of the router and
+    catastrophic in use: `POST /v1/videos` would answer with index.html.
+    """
+    from fastapi.testclient import TestClient
+
+    from html_video_workflow.api.app import create_app
+    from html_video_workflow.api.studio import studio_dist
+
+    dist = _fake_built_studio(tmp_path)
+    assert studio_dist([dist]) == dist
+
+    # The env override is consulted first, so this is deterministic even on a
+    # checkout that has a real `apps/studio/dist` sitting next to it.
+    monkeypatch.setenv("HVW_STUDIO_DIST", str(dist))
+    app = create_app()
+    assert app.state.studio_dir == dist
+
+    client = TestClient(app)
+    root = client.get("/")
+    assert root.status_code == 200
+    assert "studio" in root.text
+    assert client.get("/health").json()["status"] == "ok"
+    assert client.get("/v1/templates").status_code == 200
+
+
+def test_an_unbuilt_studio_is_reported_rather_than_faked(tmp_path) -> None:
+    """An `index.html` with no asset bundle is a half-finished build."""
+    from html_video_workflow.api.studio import studio_dist
+
+    half = tmp_path / "half-built"
+    half.mkdir()
+    (half / "index.html").write_text("<html></html>", encoding="utf-8")
+
+    assert studio_dist([half]) is None
+    assert studio_dist([tmp_path / "does-not-exist"]) is None
+
+
+def test_the_cli_exposes_the_studio_subcommand() -> None:
+    from html_video_workflow.cli import build_parser
+
+    parser = build_parser()
+    args = parser.parse_args(["studio", "--port", "8899"])
+    assert args.port == 8899
+    assert args.func.__name__ == "cmd_studio"
+
+
+# ------------------------------------------------- the front door must open
+def _documented_cli_lines() -> list[tuple[str, str]]:
+    root = Path(__file__).resolve().parent.parent
+    names = ("README.md", "QUICKSTART.md", "SKILL.md", "docs/API.md")
+    lines: list[tuple[str, str]] = []
+    for name in names:
+        path = root / name
+        if not path.exists():
+            continue
+        for raw in path.read_text(encoding="utf-8").splitlines():
+            stripped = raw.strip()
+            if stripped.startswith("html-video "):
+                lines.append((name, stripped))
+    return lines
+
+
+def test_every_documented_cli_example_actually_parses() -> None:
+    """A first-time user runs exactly these lines.
+
+    Both headline examples used to be wrong: `-o` is not a flag this CLI
+    defines, and `html-video studio` is not a subcommand. Neither could be
+    caught by a unit test written against the code, because the code was fine —
+    only the advertisement was broken. So the advertisement is parsed here.
+    """
+    import shlex
+
+    from html_video_workflow.cli import build_parser
+
+    parser = build_parser()
+    lines = _documented_cli_lines()
+    assert lines, "the docs contain no CLI examples to verify"
+
+    broken = []
+    for name, line in lines:
+        tokens = shlex.split(line, comments=True)
+        # Drop the program name: `parse_args` is given the arguments, not the
+        # command line it was written as.
+        assert tokens and tokens[0] == "html-video", line
+        try:
+            parser.parse_args(tokens[1:])
+        except SystemExit:
+            broken.append(f"{name}: {line}")
+    assert not broken, broken
+
+
+def test_docs_do_not_advertise_a_python_field_that_does_not_exist() -> None:
+    """`create_video(..., output=...)` was documented and silently ignored."""
+    import re
+
+    root = Path(__file__).resolve().parent.parent
+    offenders = []
+    for name in ("README.md", "QUICKSTART.md", "SKILL.md", "docs/API.md"):
+        path = root / name
+        if not path.exists():
+            continue
+        text = path.read_text(encoding="utf-8")
+        for match in re.finditer(r"create_video\((.*?)\)", text, re.S):
+            call = match.group(1)
+            for field in re.findall(r"\b(\w+)\s*=", call):
+                if field not in CreateVideoRequest.model_fields:
+                    offenders.append(f"{name}: create_video({field}=...)")
+    assert not offenders, offenders
 
 
 # ------------------------------------------------- one entry point, one truth

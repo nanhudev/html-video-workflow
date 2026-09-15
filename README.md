@@ -7,14 +7,18 @@ English | [简体中文](#简体中文)
 A local-first, agentic video runtime for turning sourced research into narrated short videos. One call runs the whole pipeline — source, topic, template, style, script, storyboard, render, voice, composition and quality control — and hands back a real MP4 plus the reasons for every decision it made.
 
 ```bash
-html-video generate "Why local AI matters" -o result.mp4
+html-video generate "Why local AI matters"
 ```
 
 ```python
 from html_video_workflow import create_video
 
-result = create_video("Why local AI matters", output="result.mp4")
+result = create_video("Why local AI matters")
+print(result.video_path)
 ```
+
+`--out <dir>` and `out_dir=<dir>` choose where the MP4 lands; the result always
+carries the absolute `video_path`, so a caller never has to guess.
 
 ```http
 POST /v1/videos   {"prompt": "Why local AI matters", "duration_sec": 45}
@@ -24,10 +28,15 @@ POST /v1/videos   {"prompt": "Why local AI matters", "duration_sec": 45}
 MCP: create_video(prompt="Why local AI matters")
 ```
 
-Four entry points, one implementation. The CLI, the Python SDK, the REST API and
-the MCP server all build the same `CreateVideoRequest` and call
+```bash
+html-video studio                         # the GUI, on http://127.0.0.1:8787
+```
+
+Five entry points, one implementation. The CLI, the Python SDK, the REST API,
+the MCP server and the Studio all build the same `CreateVideoRequest` and call
 `VideoRuntime.create_video()` — so no capability can exist in one entry point
-and not another. The Studio GUI calls the same method.
+and not another. The Studio is served by the same process as the API and ships
+prebuilt in the wheel, so opening it does not require Node.
 
 ## Why this project
 
@@ -80,7 +89,8 @@ The foundation layer is now in place and coexists with — it does not replace �
 - **Hardware profiler** — probes the live machine instead of hardcoding facts.
 - **Capability-based routing** — hard filters (availability, language, VRAM budget, user locks) run before weighted scoring, and every plan carries a human-readable `reason[]`.
 - **Runtime** — `Job ▸ Task ▸ Step ▸ Artifact`, append-only `events.jsonl`, content-addressed caching, and explicit fallback recording.
-- **Studio** — a local UI for jobs, providers, hardware, and quality reports.
+- **Studio** — a local UI for jobs, providers, hardware and quality reports;
+  `html-video studio` opens it, and it needs no Node install.
 - **Doctor & smoke test** — honest status reporting for the real machine.
 
 Nothing in this layer reports `Ready` or `Available` without having probed for it.

@@ -237,7 +237,12 @@ def load_project_file_from_dict(data: dict[str, Any]):
 #: statuses, so a failure means the same thing no matter how you called it.
 EXIT_CODES: dict[str, int] = {
     "invalid_request": 2, "no_source": 2, "source_unreadable": 2,
-    "no_template": 2, "no_provider": 3, "planning_failed": 1,
+    # A thing that is not there exits 2, the same as a bad argument: both mean
+    # "look at what you asked for". 2 is also what a shell user expects from a
+    # usage error, and there is nothing to distinguish here from the caller's
+    # side beyond the message.
+    "no_template": 2, "job_not_found": 2,
+    "no_provider": 3, "planning_failed": 1,
     "render_failed": 1, "tts_failed": 1, "compose_failed": 1,
     "quality_failed": 4, "cancelled": 130, "internal": 1,
 }
@@ -488,13 +493,52 @@ def cmd_serve(args: argparse.Namespace) -> int:
         return 1
     from ..api import create_app
 
-    uvicorn.run(
-        create_app(),
-        host=args.host,
-        port=args.port,
-        log_level=args.log_level,
-    )
+    app = create_app()
+    _announce_studio(app, args.host, args.port, required=False)
+    uvicorn.run(app, host=args.host, port=args.port, log_level=args.log_level)
     return 0
+
+
+def cmd_studio(args: argparse.Namespace) -> int:
+    """Serve the Studio GUI. Node is *not* needed — the frontend is prebuilt."""
+    try:
+        import uvicorn
+    except ImportError:
+        print("uvicorn is not installed. Install with: pip install -e '.[api]'")
+        return 1
+    from ..api import create_app
+    from ..api.studio import studio_dist
+
+    if studio_dist() is None:
+        # Refusing loudly beats serving a blank page and calling it success.
+        print("The Studio frontend has not been built on this machine.")
+        print()
+        print("  from a source checkout:")
+        print("      cd apps/studio && npm ci && npm run build")
+        print("      html-video studio")
+        print()
+        print("  an installed wheel ships the built frontend, so this only")
+        print("  happens when running from a checkout without building it.")
+        return 1
+
+    app = create_app()
+    _announce_studio(app, args.host, args.port, required=True)
+    uvicorn.run(app, host=args.host, port=args.port, log_level=args.log_level)
+    return 0
+
+
+def _announce_studio(app, host: str, port: int, *, required: bool) -> None:
+    dist = getattr(app.state, "studio_dir", None)
+    where = f"http://{host}:{port}"
+    if dist:
+        print(f"Studio  {where}/")
+        print(f"API     {where}/docs")
+    elif required:
+        # cmd_studio already checked, so this is a race, not a normal path.
+        print("Studio frontend disappeared between the check and the start.")
+    else:
+        print(f"API     {where}/docs")
+        print("Studio  not built — run `html-video studio` for instructions")
 
 
 # -------------------------------------------------------------------- settings
@@ -658,7 +702,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--build", default="build/gallery")
     p.set_defaults(func=cmd_gallery)
 
-    p = sub.add_parser("serve", help="start the Runtime API")
+    p = sub.add_parser("studio", help="open the Studio GUI (prebuilt, no Node)")
+    p.add_argument("--host", default="127.0.0.1")
+    p.add_argument("--port", type=int, default=8787)
+    p.add_argument("--log-level", default="info")
+    p.set_defaults(func=cmd_studio)
+
+    p = sub.add_parser("serve", help="start the Runtime API (and the Studio)")
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8787)
     p.add_argument("--log-level", default="info")

@@ -14,6 +14,7 @@ class VideoErrorCode(str, Enum):
     NO_SOURCE = "no_source"
     SOURCE_UNREADABLE = "source_unreadable"
     NO_TEMPLATE = "no_template"
+    JOB_NOT_FOUND = "job_not_found"
     NO_PROVIDER = "no_provider"
     PLANNING_FAILED = "planning_failed"
     RENDER_FAILED = "render_failed"
@@ -33,6 +34,10 @@ HTTP_STATUS: dict[str, int] = {
     # malformed request — 422 is reserved for input the server cannot parse or
     # validate. Callers distinguish "you asked badly" from "that isn't there".
     VideoErrorCode.NO_TEMPLATE.value: 404,
+    # Same rule as NO_TEMPLATE: a job id that was never issued is a missing
+    # resource. Returning 422 here would tell the caller their request was
+    # malformed when in fact they simply asked for something that isn't there.
+    VideoErrorCode.JOB_NOT_FOUND.value: 404,
     VideoErrorCode.NO_PROVIDER.value: 503,
     VideoErrorCode.PLANNING_FAILED.value: 500,
     VideoErrorCode.RENDER_FAILED.value: 500,

@@ -26,9 +26,12 @@ MCP  ─┘         (plus the Studio GUI, which calls the same method)
 | `templates/` | 7 manifests + 6 style profiles, hard-filter-then-score ranker |
 | `runtime/engine.py` | `VideoRuntime.create_video()` — the single implementation |
 | `api/routes/v1.py` | `POST /v1/videos`, catalogue, jobs, topics |
-| `cli/main.py` | `html-video generate` |
+| `api/studio.py` | serves the built Studio frontend from the API process |
+| `cli/main.py` | `html-video generate`, `html-video studio` |
 | `mcp/server.py` | JSON-RPC tools: `create_video`, `suggest_topics`, … |
 | `apps/studio/src/pages/Generate.tsx` | the GUI entry point |
+| `scripts/e2e_one_click.py` | the CI one-click check, and the diagnosis it cannot drop |
+| `scripts/e2e_entry_points.py` | the same for SDK, REST and MCP |
 
 Template and style are deliberately separate: the template is the *structure of
 the argument*, the style is the *skin*. A template declares what it needs
@@ -137,8 +140,8 @@ directions are now covered by tests:
 
 ## 5. Real MP4 — LOCAL E2E VERIFIED
 
-Verified on the development machine before the environment became unusable, with
-frames extracted and looked at rather than trusting the exit code:
+Verified on the development machine, with frames extracted and looked at rather
+than trusting the exit code:
 
 | Video | Geometry | Duration |
 | --- | --- | --- |
@@ -149,8 +152,60 @@ Scene boundaries were checked at exact timestamps (`t=4.0/8.0/12.0/16.0`), and
 the reported duration was confirmed against the actual encoded frame count
 (587 frames ≈ 19.63 s at 29.85 fps) — not just the container's metadata.
 
+Re-run after the routing and duration work, with the exact command CI uses:
+
+```
+html-video generate "Why local AI matters" \
+    --width 320 --height 180 --duration 6 --scenes 1 --out out --json
+```
+
+| Field | Value |
+| --- | --- |
+| `ok` | `true` |
+| Output | `Why local AI matters-job_9bf37fcd8e0c.mp4`, 240 280 bytes |
+| Measured | 320×180, 8.88 s, h264 + aac, 29.885 fps |
+| QC | 10 checks — 9 pass, 1 warn (`duration_match` Δ3.12 s), 0 fail |
+| Providers | `mock_llm` · `mock_tts` · `advanced_html` · `srt` |
+| Fallbacks | none |
+| Elapsed | 43.0 s |
+
+`--scenes 1` became 4 scenes, because `editorial_argument` is a four-beat
+structure and a template's scene count is a floor, not a suggestion. Four scenes
+cannot run shorter than ~12 s, so a 6 s target is unreachable; the result says
+so in `warnings` rather than silently delivering something else. That warning is
+new — see §4.
+
 This does **not** replace CI: it proves the pipeline produces real video; CI
 proves it still does after every change.
+
+---
+
+## 5b. The front door did not open — found by executing the documentation
+
+Everything above was true while four of the five advertised entry points could
+not be used as documented. None of these were caught by 324 passing tests,
+because the tests were written against the code and the code was self-consistent
+— only the *advertisement* was wrong. They were found by running what each
+document actually told a reader to run.
+
+| What the docs said | What happened | Fix |
+| --- | --- | --- |
+| `create_video("Why local AI matters", output="result.mp4")` | the positional prompt was **silently discarded** (the wrapper only understood a `CreateVideoRequest` in first position) and `output=` was **silently accepted** (`extra="allow"`), so the call failed with "nothing to make a video from" | the prompt is now accepted positionally, and an unknown field raises `TypeError` — it is no longer possible to pass an argument that is ignored |
+| `html-video generate "…" -o result.mp4` | `-o` does not exist; the flag is `--out`, and it names a **directory**, not a file | every document now shows `--out <dir>` and a command that parses |
+| `html-video studio` | no such subcommand existed — the Studio was reachable only via `npm run dev` in a checkout | `studio` is now a real subcommand that serves the built frontend |
+| `html-video serve` "REST + Studio" | it served the REST API only; `create_app()` had no static mount | the built frontend is mounted at `/`, after the routers |
+| MCP companion tool `get_job` | the tool is named `video_status` | corrected in `SKILL.md` |
+| Vite dev proxy list | omitted `/v1`, while `src/api.ts` was already posting to `/v1/videos` — the Generate page worked in a production build and got HTML back in dev | `/v1` added to the proxy |
+
+Two tests now guard this class of defect, and they are written against the
+documents rather than the code:
+
+- `test_every_documented_cli_example_actually_parses` — feeds every
+  `html-video …` line in `README.md`, `QUICKSTART.md`, `SKILL.md` and
+  `docs/API.md` through the real argument parser;
+- `test_docs_do_not_advertise_a_python_field_that_does_not_exist` — extracts
+  every keyword from every documented `create_video(...)` call and checks it
+  against `CreateVideoRequest.model_fields`.
 
 ---
 
@@ -158,12 +213,23 @@ proves it still does after every change.
 
 | Where | Result |
 | --- | --- |
-| Local, Windows, full suite | **324 tests, 0 failures, 0 errors, 0 skipped** (`--junitxml`, 736 s) |
+| Local, Windows, full suite | **337 tests, 0 failures, 0 errors, 0 skipped** (`--junitxml`, ~13 min) |
 | CI, `tests/test_phase3_product.py` | **pass** |
 
 The local number is read from the junit report, not the console: this runner
 kills long-lived child processes, so a console summary line is not trustworthy
-here.
+here. The run that produced 337 also produced the two failures below — both are
+worth recording, because one was a real defect the new tests found and the other
+was a bug in the test itself.
+
+| Failure | What it was |
+| --- | --- |
+| `test_cli_maps_error_codes_to_exit_statuses` | adding `job_not_found` to the shared status table left the CLI's `EXIT_CODES` without an entry for it. The assertion — every code in `HTTP_STATUS` has an exit status — is exactly the kind that keeps two tables derived from one vocabulary honest. Fixed by giving `job_not_found` the same exit status as `no_template` (2). |
+| `test_every_documented_cli_example_actually_parses` | the new test passed the program name to `argparse.parse_args`, which takes arguments, not a command line. A bug in the check, not in the documents: with the program name dropped, all 27 documented examples parse. |
+
+The second is the more embarrassing and the more instructive: a test written to
+guarantee "the front door opens" was itself broken in a way that looked like
+28 broken documents.
 
 ## 7. GitHub CI is the authority
 
@@ -172,26 +238,43 @@ The local Windows box cannot run the suite to completion, so CI is the record.
 
 | Job | Proves |
 | --- | --- |
+| `discover` | lists the test files for the matrix; also posts a canary status, so a broken reporting path is visible before it is needed |
+| `pytest` (one job per test file) | a red build names the file that broke |
 | `python` | collect, full suite, junit summary (fails on any failure/error, or on zero tests), IR schema check, provider registry loads with no silent failures |
 | `studio` | frontend typecheck + build, uploads `dist` |
-| `package` | builds sdist + wheel, installs into a **clean venv**, asserts the builtin JSON manifests shipped as package-data, runs `html-video --help` |
-| `one-click` | CLI `generate` → ffprobe; Python SDK `create_video`; REST `wait=true` and `wait=false`; MCP `tools/list` and `create_video` present |
+| `package` | builds the Studio frontend, vendors it into the package, builds sdist + wheel, installs into a **clean venv**, asserts the builtin JSON manifests *and* the Studio frontend shipped as package-data, runs `html-video --help` and `html-video studio --help` |
+| `one-click` (windows-latest) | CLI `generate` → ffprobe; Python SDK `create_video`; REST `wait=true`, `wait=false` and unknown-job 404; MCP `tools/list` and `create_video` |
 
 The one-click job renders at **320×180, one scene** — enough to prove the whole
 chain (source → plan → IR → render → voice → compose → QC) without making CI
-slow or flaky.
+slow or flaky. It runs on `windows-latest` because the renderer drives Edge and
+the local voice path is SAPI: a Linux runner would be testing a browser stack
+nobody ships.
 
-No `|| true`, no `continue-on-error`, no skipping a failing test. A red step
-means a real defect.
+No `|| true`, no skipping a failing test. `continue-on-error` appears on the E2E
+steps **only** so that a step which dies cannot take the diagnosis with it; a
+gate step immediately afterwards turns the job red. The one thing that must
+never happen is a red build that says nothing.
 
 ### Reading a red build without log access
 
-Runner logs and junit artifacts both need a browser session or a token. Two
-things were added so a failure can be localised from outside:
+Runner logs, job artifacts and even the `check-runs` annotations all require a
+browser session or a token. The annotations carry only "Process completed with
+exit code 1" — no output. So everything a failure needs to say has to travel
+through a channel that plain read access can see:
 
 1. a **matrix**, one job per test file — a red build names the file;
 2. on failure, a **commit status** whose description lists the failing test
-   names — readable with plain repo read access.
+   names — readable with plain repo read access;
+3. for the one-click E2E, a script (`scripts/e2e_one_click.py`) that posts what
+   it observed — the CLI's error code and message, the tail of its stderr, the
+   provider table, and a planning-only dry run — from a `finally` block, so no
+   failure mode can skip the reporting.
+
+Step 3 exists because of a concrete loss: the one-click job went red and posted
+nothing at all, which cost a full build cycle to learn nothing. The reporting is
+now structurally impossible to skip, and `e2e_entry_points.py` does the same for
+the SDK, REST and MCP surfaces.
 
 That combination produced the exact list in §8 without ever opening the log.
 
@@ -213,27 +296,43 @@ by weakening the assertion.
 
 ## 9. Known issues
 
-- **`GET /v1/videos/{unknown}` returns 422** while `GET /v1/templates/{unknown}`
-  returns 404. Both are "the named thing is not there" and should agree; the
-  template case was the one under test, so the job case was left alone rather
-  than changed without a decision. Recommended: 404 for both.
+- **The one-click E2E is red on `windows-latest`.** Every other job is green
+  (17 of 18), including the full suite, the wheel build and the Studio build.
+  The CLI `generate` step fails on the runner and succeeds locally with the same
+  command, so it is an environment difference that has not yet been identified
+  — the reporting added in §7 is what will name it, because the runner's log is
+  not readable from here. Not to be closed by pinning a provider until the
+  actual failure is known.
+- **Local verification must not be trusted for CI claims.** The D: virtualenv's
+  `site-packages` was destroyed mid-session (pip, fastapi, httpx, anyio,
+  httpcore, attrs, packaging all hollowed to empty namespace directories) by a
+  `pip install -e` run whose uninstall step collided with the shell's
+  safe-delete guard. It was rebuilt from scratch at `D:\hvw-venv`; a fresh venv
+  performs no uninstalls, which is why the rebuild survived. Tests themselves
+  never depended on it — `pyproject.toml` sets `pythonpath = ["src"]`, so pytest
+  imports the working tree directly.
 - **Critic findings are not yet acted upon.** `VisualDesignCritic` emits
   `AA-001…AA-012`; nothing consumes them to change a layout. `AA-012`
   ("nothing moves continuously") still fires on every scene.
-- **Frontend build is CI-only locally.** `apps/studio/node_modules` was not
-  migrated to the D: workspace, so `npm run typecheck` cannot be run here;
-  CI covers it.
-- **Local environment limitation:** C: has ~0–4.7 GB free and the shell's
-  safe-delete guard kills long-running child processes. Any local run must use
-  D:, `TMP/TEMP/TMPDIR` pointed at D:, and the background runner.
+- **`--language zh-CN` routes to `mock_tts` even where SAPI is ready.** This is
+  correct rather than broken — SAPI's two voices are English, so a zh-CN request
+  has no real engine to route to — but it means a zh-CN one-click produces
+  placeholder audio on a machine that *looks* like it has a voice. Worth a
+  louder warning in the result.
+- **Local environment limitation:** the shell's safe-delete guard kills
+  long-running child processes, so any local run must use D:,
+  `TMP/TEMP/TMPDIR` pointed at D:, and the background runner. `head`, `tail` and
+  `bash` are not on the shim's PATH; drive the work from Python instead.
 
 ---
 
 ## 10. Next
 
-1. Confirm the three platform guards turn CI green.
-2. Merge `phase3-productization` into `main` only when CI, package build and
-   one-click E2E are all green.
-3. Reconcile the 404/422 inconsistency (`/v1/videos/{unknown}` vs
-   `/v1/templates/{unknown}`).
-4. Close the loop on critic findings — let a finding change a layout.
+1. Read the one-click failure off the `e2e/*` commit statuses and fix it.
+   Merge `phase3-productization` into `main` only when CI, the package build, the
+   Studio build and the one-click E2E are all green.
+2. Close the loop on critic findings — let a finding change a layout.
+3. Make "a zh-CN request fell back to a placeholder voice" a first-class warning
+   instead of something a caller has to infer from `providers`.
+4. Validate on real hardware — the RTX 2070 path, and a neural TTS engine —
+   which CI cannot do by design.

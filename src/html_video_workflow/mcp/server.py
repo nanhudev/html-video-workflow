@@ -55,6 +55,11 @@ TOOLS: list[dict[str, Any]] = [
                 },
                 "aspect": {"type": "string",
                            "enum": ["16:9", "9:16", "1:1", "4:5", "3:4"]},
+                "width": {"type": "integer",
+                          "description": "Override the output width. Pair with "
+                                         "`height`; the default comes from the "
+                                         "platform preset or the aspect ratio."},
+                "height": {"type": "integer"},
                 "duration_sec": {"type": "number",
                                  "description": "Target duration. Narration is "
                                                 "trimmed to fit."},
@@ -139,6 +144,8 @@ def _create_video(args: dict[str, Any]) -> dict[str, Any]:
         language=args.get("language") or "zh-CN",
         platform=args.get("platform"),
         aspect=args.get("aspect"),
+        width=args.get("width"),
+        height=args.get("height"),
         duration_sec=args.get("duration_sec"),
         scenes=args.get("scenes"),
         template=args.get("template"),

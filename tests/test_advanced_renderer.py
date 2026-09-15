@@ -636,3 +636,32 @@ def test_missing_image_renders_a_visible_marker() -> None:
         )
     )
     assert "missing asset" in out["html"]
+
+
+# ------------------------------------------------- headless browser hygiene
+def test_a_headless_render_gets_its_own_browser_profile(tmp_path) -> None:
+    """A render must not depend on, or write to, the machine's own profile.
+
+    Chromium writes a profile wherever it is told to. Without an explicit
+    ``--user-data-dir`` it uses the invoking account's — whose contents are a
+    machine-specific input into a pipeline that exists to remove exactly those,
+    and which on a locked-down or service-account machine may not be usable at
+    all. Its response in that case is to produce no image rather than to explain
+    itself.
+    """
+    from pathlib import Path
+
+    from html_video_workflow.renderers.capture import BrowserCapture
+    from html_video_workflow.renderers.determinism import browser_run_flags
+
+    capture = BrowserCapture()
+    first = capture.profile_dir()
+    assert Path(first).is_dir()
+    assert capture.profile_dir() == first, "one profile per capture session"
+
+    flags = browser_run_flags(first)
+    assert f"--user-data-dir={first}" in flags
+    # A browser that has never been launched can hold the process open on its
+    # first-run experience until --screenshot fires against nothing.
+    assert "--no-first-run" in flags
+    assert "--no-default-browser-check" in flags

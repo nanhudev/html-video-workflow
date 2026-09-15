@@ -16,7 +16,7 @@ of failing.
 ## Your first video
 
 ```bash
-html-video generate "Why local AI matters" -o result.mp4
+html-video generate "Why local AI matters"
 ```
 
 That runs the whole pipeline: source → topic → template → script → storyboard →
@@ -28,9 +28,13 @@ duration, and the decisions it made.
 ```python
 from html_video_workflow import create_video
 
-result = create_video("Why local AI matters", output="result.mp4")
+result = create_video("Why local AI matters", out_dir="out")
 print(result.video_path, result.duration_sec)
 ```
+
+The first argument is the prompt. `create_video(prompt="...")` and
+`create_video(CreateVideoRequest(...))` mean the same thing; a misspelled field
+is an error, never a silently ignored one.
 
 ## Choose a shape
 
@@ -77,9 +81,12 @@ independent, and forcing a mismatched pair is allowed but recorded in
 ## Serve it
 
 ```bash
-html-video serve              # REST + Studio on http://127.0.0.1:8787
-html-video studio             # the GUI
+html-video studio             # the GUI on http://127.0.0.1:8787
+html-video serve              # the same app, described as an API
 ```
+
+Both serve the prebuilt Studio and the REST API from one process — no Node
+required. `html-video studio` says so plainly if the frontend was never built.
 
 ```http
 POST /v1/videos  {"prompt": "Why local AI matters", "duration_sec": 45}

@@ -20,13 +20,18 @@ MCP  ─┘
 from html_video_workflow import create_video
 
 result = create_video(
-    "Why local AI matters",
+    "Why local AI matters",    # the prompt may be positional
     platform="youtube_16x9",   # or aspect="16:9" / width + height
     duration_sec=45,
     scenes=6,
-    output="result.mp4",
+    out_dir="out",             # a directory; result.video_path names the file
 )
 ```
+
+The prompt may be given positionally, as `prompt="..."`, or inside a
+`CreateVideoRequest`. Passing both forms at once, passing more than one
+positional argument, or naming a field that does not exist all raise
+`TypeError` — the SDK never ignores an argument it does not understand.
 
 | Returns | Meaning |
 | --- | --- |
@@ -47,8 +52,8 @@ poll with `VideoRuntime.job_result(job_id)`.
 ## 2. CLI
 
 ```bash
-html-video generate "Why local AI matters" -o result.mp4
-html-video generate "..." --platform youtube_shorts_9x16 --duration 30
+html-video generate "Why local AI matters"
+html-video generate "..." --out out --platform youtube_shorts_9x16 --duration 30
 html-video generate "..." --source https://example.com/article
 html-video generate "..." --template data_story --style blueprint
 html-video generate "..." --dry-run          # plan only
@@ -106,7 +111,7 @@ Body is a `CreateVideoRequest`. Query `?wait=true|false` overrides the body's
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/v1/videos` | list jobs |
-| `GET` | `/v1/videos/{job_id}` | job status / result |
+| `GET` | `/v1/videos/{job_id}` | job status / result (404 when never issued) |
 | `GET` | `/v1/videos/{job_id}/events` | progress events |
 | `DELETE` | `/v1/videos/{job_id}` | cancel |
 | `GET` | `/v1/templates` | every template manifest, verbatim |
@@ -117,11 +122,21 @@ Body is a `CreateVideoRequest`. Query `?wait=true|false` overrides the body's
 
 ### Status codes
 
-| Code | Meaning |
-| --- | --- |
-| `200` | done (or a job handle when `wait=false`) |
-| `404` | the named thing does not exist (unknown template, …) |
-| `422` | the request cannot be validated (no intent, bad duration, …) |
+| Code | Meaning | `VideoErrorCode` |
+| --- | --- | --- |
+| `200` | done (or a job handle when `wait=false`) | — |
+| `400` | the request named a source that cannot be read | `no_source`, `source_unreadable` |
+| `404` | the named thing does not exist | `no_template`, `job_not_found` |
+| `409` | the job was cancelled | `cancelled` |
+| `422` | the request cannot be validated (no intent, bad duration, …) | `invalid_request` |
+| `500` | a stage failed mid-run | `planning_failed`, `render_failed`, `tts_failed`, `compose_failed`, `quality_failed`, `internal` |
+| `503` | no provider can serve a required stage | `no_provider` |
+
+A job id that was never issued is `404` with `job_not_found`, not `422`: the
+caller did not ask badly, they asked for something that is not there. The same
+rule applies to an unknown template, and to `/v1/videos/{id}/events`, where an
+empty list would otherwise be indistinguishable from "this job has no events
+yet".
 | `503` | no provider can satisfy a stage |
 | `500` | a stage failed |
 

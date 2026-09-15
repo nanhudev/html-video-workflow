@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 #: Fonts declared by the renderer, in priority order. These are chosen because
@@ -94,6 +95,31 @@ DETERMINISTIC_BROWSER_FLAGS: list[str] = [
     "--disable-new-content-rendering-timeout",
     "--font-render-hinting=none",
 ]
+
+def browser_run_flags(profile_dir: str | Path) -> list[str]:
+    """Flags for one headless run, including a private profile directory.
+
+    A private ``--user-data-dir`` is what makes a render independent of the
+    machine rather than of its configuration: no bookmarks bar, no extension,
+    no signed-in profile, no "restore pages" prompt. More practically, on a
+    locked-down or service-account machine the default profile directory may not
+    be usable at all, and Chromium's response is to write no image rather than
+    to explain itself.
+
+    The first-run switches matter for the same reason. A freshly installed
+    browser has never been launched, and its first-run experience can hold the
+    process open long enough that ``--screenshot`` fires against nothing.
+    """
+    return [
+        *DETERMINISTIC_BROWSER_FLAGS,
+        f"--user-data-dir={profile_dir}",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--disable-extensions",
+        "--disable-sync",
+        "--disable-component-update",
+    ]
+
 
 #: Header injected into every document. `image-rendering` and text smoothing are
 #: pinned because they are the two things most likely to differ across machines.

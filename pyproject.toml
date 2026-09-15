@@ -43,7 +43,16 @@ Documentation = "https://github.com/nanhudev/html-video-workflow/blob/main/docs/
 where = ["src"]
 
 [tool.setuptools.package-data]
-html_video_workflow = ["py.typed", "templates/builtins/*.json"]
+# `studio_dist` is not a Python package — it is the built Studio frontend,
+# copied in by the release build so an installed wheel can serve the GUI
+# without Node ever being installed. Absent when building from a bare checkout,
+# which is why `html-video studio` reports that instead of serving a blank page.
+html_video_workflow = [
+    "py.typed",
+    "templates/builtins/*.json",
+    "studio_dist/*",
+    "studio_dist/assets/*",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

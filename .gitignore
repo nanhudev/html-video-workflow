@@ -10,6 +10,13 @@ outputs/
 # Node / Studio frontend dependencies and build output.
 node_modules/
 dist/
+# The built frontend, vendored into the package by the release build. Generated,
+# never committed — a checkout builds it with `npm run build`.
+src/html_video_workflow/studio_dist/
+
+# Editable-install metadata. Written next to the source by `pip install -e`,
+# not part of the project.
+*.egg-info/
 *.tsbuildinfo
 vite.config.ts.timestamp-*
 
