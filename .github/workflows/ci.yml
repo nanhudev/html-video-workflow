@@ -84,6 +84,51 @@ jobs:
       - name: Run ${{ matrix.file }}
         run: python -m pytest "${{ matrix.file }}" --junitxml=junit.xml
 
+      # A runner's console log is only readable from a browser session, and the
+      # junit artifact needs auth. A commit status does not: it is visible to
+      # anyone with read access to the repo, including a CI-less client. This is
+      # how a red build says *which* test broke without leaking anything.
+      - name: Report failures as a commit status
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FILE: ${{ matrix.file }}
+        run: |
+          python - <<'PY'
+          import json, os, pathlib, urllib.request
+
+          names = []
+          path = pathlib.Path("junit.xml")
+          if path.exists():
+              import xml.etree.ElementTree as ET
+              root = ET.parse(path).getroot()
+              suite = root if root.tag == "testsuite" else root[0]
+              for case in suite.iter("testcase"):
+                  for child in list(case):
+                      if child.tag in ("failure", "error"):
+                          names.append(case.get("name", "?").split("::")[-1])
+
+          if not names:
+              names = ["failed with no junit record"]
+          summary = ", ".join(names)[:130]
+          file = os.environ.get("FILE", "pytest")
+          body = json.dumps({
+              "state": "failure",
+              "context": f"pytest/{file.split('/')[-1]}",
+              "description": summary,
+          }).encode()
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}"
+              f"/statuses/{os.environ['GITHUB_SHA']}",
+              data=body,
+              headers={"Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                       "Accept": "application/vnd.github+json",
+                       "Content-Type": "application/json"},
+              method="POST")
+          with urllib.request.urlopen(request) as response:  # noqa: S310
+              print("status posted:", response.status)
+          PY
+
       - name: Upload the test record
         if: always()
         uses: actions/upload-artifact@v4
