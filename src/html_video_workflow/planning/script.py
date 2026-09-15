@@ -248,6 +248,15 @@ _BEATS: dict[str, dict[str, dict[str, str]]] = {
 
 _FALLBACK_BEAT = "claim"
 
+#: A scene shorter than this reads as a flash, so it is a floor on timing — and
+#: therefore a floor on the total: N scenes can never run for less than
+#: ``N * _MIN_SCENE_SEC``, however short the narration is.
+_MIN_SCENE_SEC = 3.0
+_MAX_SCENE_SEC = 12.0
+#: Breathing room after the last syllable. A cut that lands on the final sound
+#: reads as rushed, and the pause is where the point lands.
+_BEAT_PADDING_SEC = 0.9
+
 
 class ScriptBeat(BaseModel):
     """One scene's worth of narration and the words that go on screen."""
@@ -469,7 +478,7 @@ class ScriptPlanner:
         per_beat: float | None = None
         if target and beats:
             # Reserve the inter-beat pause before dividing, or the sum overshoots.
-            spendable = max(4.0, float(target) - 0.9 * len(beats))
+            spendable = max(4.0, float(target) - _BEAT_PADDING_SEC * len(beats))
             per_beat = spendable / len(beats)
             budget = max(10, int(per_beat * cps))
             if budget < max_chars:
@@ -488,20 +497,31 @@ class ScriptPlanner:
                 # long, because the canonical estimator ignores whitespace.
                 beat.narration = _trim_to_seconds(beat.narration, per_beat, cps)
             spoken = estimate_speech_seconds(beat.narration, cps)
-            # +0.9s of breathing room: a cut that lands on the last syllable
-            # reads as rushed, and the pause after is where the point lands.
-            beat.duration_sec = round(min(12.0, max(3.0, spoken + 0.9)), 2)
+            beat.duration_sec = round(
+                min(_MAX_SCENE_SEC,
+                    max(_MIN_SCENE_SEC, spoken + _BEAT_PADDING_SEC)), 2)
 
         if target and beats:
-            # Trimming can make a video shorter, never longer. A target the
-            # material cannot fill has to be *reported*, not quietly missed:
-            # padding the gap with held frames would just be dead air.
             total = sum(beat.duration_sec for beat in beats)
             if total < float(target) * 0.9:
+                # Trimming can make a video shorter, never longer. A target the
+                # material cannot fill has to be *reported*, not quietly
+                # missed: padding the gap with held frames is just dead air.
                 warnings.append(
                     f"narration fills only ~{total:.0f}s of the requested "
                     f"{target:.0f}s; add material, more scenes or a shorter "
                     f"target to close the gap")
+            elif total > float(target) * 1.1:
+                # The other missed direction: trimming cannot go below the
+                # per-scene floor, so a very short target is unreachable once
+                # the template requires more scenes than the budget allows.
+                # Asking for 6s and shipping 9s silently is the same lie as the
+                # original 20s-that-was-32s, just in the other direction.
+                warnings.append(
+                    f"scenes cannot be shorter than {_MIN_SCENE_SEC:.1f}s each, "
+                    f"so {len(beats)} scenes need ~{total:.0f}s; the "
+                    f"{target:.0f}s target is below what this template can "
+                    f"produce — raise it or pick a template with fewer scenes")
         return beats
 
     def _fact_pool(self, documents: list[SourceDocument], topic: str,

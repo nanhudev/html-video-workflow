@@ -678,6 +678,22 @@ def test_requested_duration_is_honoured_within_tolerance() -> None:
             f"asked for {target}s, planner produced {total}s")
 
 
+def test_a_target_below_the_scene_floor_is_reported() -> None:
+    """The same lie as the 20s-that-was-32s, in the other direction.
+
+    A scene has a minimum length, so N scenes have a minimum total. Asking for
+    6s from a template that needs 5 scenes cannot be satisfied by trimming, and
+    shipping 15s for a 6s request without saying so is exactly the silence the
+    duration contract exists to prevent.
+    """
+    manifest = get_registry().get("knowledge_primer")
+    script = ScriptPlanner().build("向量数据库", manifest=manifest,
+                                   target_duration_sec=6)
+    assert script.total_duration > 6.0 * 1.1
+    assert any("below what this template can produce" in warning
+               for warning in script.warnings), script.warnings
+
+
 def test_a_target_the_material_cannot_fill_is_reported() -> None:
     """A target can be missed in both directions.
 

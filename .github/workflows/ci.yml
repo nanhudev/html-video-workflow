@@ -98,7 +98,9 @@ jobs:
       - name: Report failures as a commit status
         if: failure()
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Actions does not inject secrets into the step environment on its
+          # own; without this the posting helper silently does nothing.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FILE: ${{ matrix.file }}
         run: |
           python - <<'PY'
@@ -342,6 +344,8 @@ jobs:
         # The generate call is not allowed to fail the step on its own: the
         # point is to *report why* it failed, and a non-zero exit here would
         # skip the reporting. The step still goes red — it just says why.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -uo pipefail
           html-video generate "Why local AI matters" \
