@@ -41,6 +41,58 @@ env:
   HVW_HOME: ${{ github.workspace }}/.hvw-home
 
 jobs:
+  # The runner's console output is not readable from outside a browser session,
+  # so granularity has to be bought with structure: one job per test file means
+  # a red build points at the file that broke.
+  discover:
+    name: Discover test files
+    runs-on: ubuntu-latest
+    outputs:
+      files: ${{ steps.list.outputs.files }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: list
+        run: |
+          echo "files=$(python -c 'import glob, json; print(json.dumps(sorted(glob.glob("tests/test_*.py"))))')" >> "$GITHUB_OUTPUT"
+
+  pytest:
+    name: ${{ matrix.file }}
+    needs: discover
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        file: ${{ fromJSON(needs.discover.outputs.files) }}
+    steps:
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install package and dev deps
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev,api]"
+
+      - name: Verify ffmpeg
+        run: ffmpeg -version | head -n 1
+
+      - name: Run ${{ matrix.file }}
+        run: python -m pytest "${{ matrix.file }}" --junitxml=junit.xml
+
+      - name: Upload the test record
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-${{ strategy.job-index }}
+          path: junit.xml
+          if-no-files-found: warn
+          retention-days: 7
+
   python:
     name: Python tests + schema
     runs-on: ubuntu-latest
