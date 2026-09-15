@@ -1,0 +1,63 @@
+{
+  "id": "mechanism_explainer",
+  "name": "Mechanism Explainer",
+  "version": "1.0.0",
+  "description": "按机制展开：问题是什么、内部怎么运转、关键部件各自干什么。适合讲清一个系统或技术，需要主题可被拆成几个部件。",
+  "best_for": [
+    "explainer",
+    "tutorial",
+    "knowledge"
+  ],
+  "not_for": [
+    "data_story",
+    "essay",
+    "music_visualizer"
+  ],
+  "platforms": [],
+  "aspects": [],
+  "scene_count": {
+    "min": 5,
+    "max": 9,
+    "recommended": 6
+  },
+  "beats": [
+    "hook",
+    "problem",
+    "overview",
+    "step",
+    "step",
+    "recap"
+  ],
+  "narration": {
+    "chars_per_sec": 5.1,
+    "max_chars_per_scene": 140,
+    "tone": "instructive"
+  },
+  "layouts": [
+    "diagram",
+    "split",
+    "editorial_left",
+    "full_bleed"
+  ],
+  "motion_vocabulary": [
+    "reveal",
+    "trace",
+    "connect",
+    "progression"
+  ],
+  "density": "balanced",
+  "requires": [],
+  "default_style": "blueprint",
+  "compatible_styles": [
+    "blueprint",
+    "editorial",
+    "mono_ink",
+    "brand_neutral"
+  ],
+  "score_hints": {
+    "steps": 0.9,
+    "structural": 0.9,
+    "numeric": 0.4,
+    "opinionated": 0.3
+  }
+}

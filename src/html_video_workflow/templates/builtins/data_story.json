@@ -1,0 +1,64 @@
+{
+  "id": "data_story",
+  "name": "Data Story",
+  "version": "1.0.0",
+  "description": "以数字为骨架：一个 headline 指标，两三个支撑数字，最后交代口径。只有能拿到可信数字时才该被选中，否则它会把形容词包装成数据。",
+  "best_for": [
+    "data_story",
+    "news",
+    "explainer"
+  ],
+  "not_for": [
+    "tutorial",
+    "essay",
+    "music_visualizer",
+    "avatar_presenter"
+  ],
+  "platforms": [],
+  "aspects": [],
+  "scene_count": {
+    "min": 4,
+    "max": 7,
+    "recommended": 5
+  },
+  "beats": [
+    "hook",
+    "headline_number",
+    "supporting",
+    "caveat",
+    "payoff"
+  ],
+  "narration": {
+    "chars_per_sec": 5.4,
+    "max_chars_per_scene": 110,
+    "tone": "precise"
+  },
+  "layouts": [
+    "stat",
+    "split",
+    "editorial_left",
+    "overlay"
+  ],
+  "motion_vocabulary": [
+    "count",
+    "reveal",
+    "progression",
+    "focus"
+  ],
+  "density": "sparse",
+  "requires": [
+    "data"
+  ],
+  "default_style": "blueprint",
+  "compatible_styles": [
+    "blueprint",
+    "editorial",
+    "neon_night",
+    "mono_ink"
+  ],
+  "score_hints": {
+    "numeric": 1.0,
+    "structural": 0.3,
+    "opinionated": 0.2
+  }
+}

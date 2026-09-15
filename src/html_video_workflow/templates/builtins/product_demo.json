@@ -1,0 +1,63 @@
+{
+  "id": "product_demo",
+  "name": "Product Demo",
+  "version": "1.0.0",
+  "description": "演示型结构：痛点、能力、用法、结果。文字密度刻意压低，画面留给实际操作录屏。没有屏幕素材时不该选它。",
+  "best_for": [
+    "product_demo",
+    "tutorial",
+    "social_short"
+  ],
+  "not_for": [
+    "essay",
+    "data_story",
+    "documentary"
+  ],
+  "platforms": [],
+  "aspects": [],
+  "scene_count": {
+    "min": 4,
+    "max": 8,
+    "recommended": 5
+  },
+  "beats": [
+    "hook",
+    "pain",
+    "capability",
+    "walkthrough",
+    "result"
+  ],
+  "narration": {
+    "chars_per_sec": 5.5,
+    "max_chars_per_scene": 90,
+    "tone": "direct"
+  },
+  "layouts": [
+    "split",
+    "overlay",
+    "full_bleed",
+    "center"
+  ],
+  "motion_vocabulary": [
+    "reveal",
+    "focus",
+    "drift"
+  ],
+  "density": "sparse",
+  "requires": [
+    "screen_capture"
+  ],
+  "default_style": "brand_neutral",
+  "compatible_styles": [
+    "brand_neutral",
+    "blueprint",
+    "editorial",
+    "neon_night"
+  ],
+  "score_hints": {
+    "steps": 0.7,
+    "structural": 0.4,
+    "numeric": 0.3,
+    "opinionated": 0.2
+  }
+}

@@ -12,6 +12,12 @@ from typing import Any
 
 from ..config.paths import hv_home, outputs_dir
 from ..config.settings import known_secrets, load_env_file, load_settings, save_settings
+from ..core.request import (
+    PLATFORM_PRESETS,
+    CreateVideoRequest,
+    SourceInput,
+    VideoResult,
+)
 from ..hardware.benchmark import run_core_benchmarks
 from ..hardware.profile import probe_hardware
 from ..legacy.adapter import gallery_legacy, legacy_templates, render_legacy
@@ -22,6 +28,7 @@ from ..project.store import list_projects, load_project, load_project_file, save
 from ..providers.base import ProviderType
 from ..providers.registry import all_providers, by_type, capabilities
 from ..runtime.engine import VideoRuntime, get_runtime
+from ..sources import resolve_source
 from ..utils.logging import configure_logging, get_logger
 
 log = get_logger("cli")
@@ -225,6 +232,170 @@ def load_project_file_from_dict(data: dict[str, Any]):
     return load_any(data)
 
 
+# -------------------------------------------------------------------- generate
+#: CLI exit statuses. Derived from the same error codes the API turns into HTTP
+#: statuses, so a failure means the same thing no matter how you called it.
+EXIT_CODES: dict[str, int] = {
+    "invalid_request": 2, "no_source": 2, "source_unreadable": 2,
+    "no_template": 2, "no_provider": 3, "planning_failed": 1,
+    "render_failed": 1, "tts_failed": 1, "compose_failed": 1,
+    "quality_failed": 4, "cancelled": 130, "internal": 1,
+}
+
+
+def _request_from_args(args: argparse.Namespace) -> CreateVideoRequest:
+    source = None
+    if args.source:
+        source = SourceInput(kind=args.source_kind, value=args.source,
+                             max_chars=args.max_chars)
+    elif args.file:
+        source = SourceInput(kind="file", value=args.file, max_chars=args.max_chars)
+    try:
+        return CreateVideoRequest(
+            prompt=(args.prompt or None),
+            topic=args.topic,
+            source=source,
+            script=(Path(args.script).read_text(encoding="utf-8")
+                    if args.script else None),
+            title=args.title,
+            language=args.language,
+            platform=args.platform,
+            aspect=args.aspect,
+            duration_sec=args.duration,
+            scenes=args.scenes,
+            template=args.template,
+            style=args.style,
+            voice=args.voice,
+            captions=not args.no_captions,
+            preset=args.preset,
+            llm=args.llm,
+            tts=args.tts,
+            renderer=args.renderer,
+            out_dir=args.out,
+            wait=not args.no_wait,
+            dry_run=args.dry_run,
+            strict=args.strict,
+            created_by="cli",
+        )
+    except Exception as exc:  # noqa: BLE001 - pydantic messages are the UX here
+        print(f"invalid request: {exc}")
+        raise SystemExit(EXIT_CODES["invalid_request"]) from exc
+
+
+def cmd_generate(args: argparse.Namespace) -> int:
+    """`html-video generate "..."` — the one command that produces an MP4."""
+    runtime = get_runtime()
+    result = runtime.create_video(_request_from_args(args))
+    if args.json:
+        print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+    else:
+        _print_result(result, verbose=args.verbose)
+    if not result.ok:
+        return EXIT_CODES.get(result.error_code or "internal", 1)
+    return 0
+
+
+def _print_result(result: "VideoResult", verbose: bool = False) -> None:
+    print(f"{'job':<10}{result.job_id or '-'}")
+    print(f"{'project':<10}{result.project_id or '-'}")
+    print(f"{'title':<10}{result.title or '-'}")
+    print(f"{'template':<10}{result.template or '-'} / style {result.style or '-'}")
+    print(f"{'scenes':<10}{result.scenes}")
+    if result.video_path:
+        print(f"VIDEO      {result.video_path}")
+        print(f"{'duration':<10}{result.duration_sec or 0:.1f}s "
+              f"({result.width}x{result.height})")
+        print(f"{'note':<10}duration measured by ffprobe on the exported file")
+    if result.qc:
+        verdict = "PASS" if result.qc.get("passed") else "FAIL"
+        print(f"{'QC':<10}{verdict} warnings={result.qc.get('warned', 0)}")
+    for fallback in result.fallbacks:
+        print(f"fallback   {fallback.get('stage')}: "
+              f"{fallback.get('from')} -> {fallback.get('to')}")
+    for warning in result.warnings:
+        print(f"warning    {warning}")
+    if verbose:
+        print("reasons:")
+        for reason in result.reasons:
+            print(f"  - {reason}")
+    if not result.ok:
+        print(f"FAILED     [{result.error_code}] {result.error}")
+
+
+def cmd_templates(args: argparse.Namespace) -> int:
+    from ..templates.registry import get_registry
+
+    registry = get_registry()
+    rows = registry.templates()
+    if args.json:
+        print(json.dumps([m.model_dump(mode="json") for m in rows],
+                         ensure_ascii=False, indent=2))
+        return 0
+    print(f"{'ID':<26}{'SCENES':<10}{'STYLE':<16}{'BEST FOR'}")
+    print("-" * 88)
+    for manifest in rows:
+        span = f"{manifest.scene_count.get('min', 3)}-{manifest.scene_count.get('max', 8)}"
+        print(f"{manifest.id:<26}{span:<10}{manifest.default_style:<16}"
+              f"{', '.join(manifest.best_for)[:34]}")
+        if args.verbose:
+            print(f"    {manifest.description}")
+    errors = registry.load_errors()
+    if errors:
+        print("-" * 88)
+        for path, message in errors.items():
+            print(f"LOAD ERROR {path}: {message}")
+    return 0
+
+
+def cmd_styles(args: argparse.Namespace) -> int:
+    from ..templates.registry import get_registry
+
+    rows = get_registry().styles()
+    if args.json:
+        print(json.dumps([s.model_dump(mode="json") for s in rows],
+                         ensure_ascii=False, indent=2))
+        return 0
+    for style in rows:
+        print(f"{style.id:<16}{style.name:<16}{style.motion_bias:<11}"
+              f"bg={style.color('bg', '?')} text={style.color('text', '?')}")
+        if args.verbose:
+            print(f"    {style.description}")
+    return 0
+
+
+def cmd_platforms(args: argparse.Namespace) -> int:
+    rows = list(PLATFORM_PRESETS.values())
+    if args.json:
+        print(json.dumps([p.model_dump(mode="json") for p in rows],
+                         ensure_ascii=False, indent=2))
+        return 0
+    for preset in rows:
+        print(f"{preset.id:<24}{preset.aspect:<7}{preset.width}x{preset.height:<6}"
+              f"safe_bottom={preset.safe_bottom:<6}{preset.label}")
+    return 0
+
+
+def cmd_topics(args: argparse.Namespace) -> int:
+    from ..planning.topic_planner import TopicPlanner
+
+    planner = TopicPlanner()
+    source = SourceInput(kind=args.source_kind, value=args.source) if args.source else None
+    request = CreateVideoRequest(prompt=args.prompt or None, topic=args.topic,
+                                 source=source)
+    documents = resolve_source(source) if source else []
+    rows = planner.suggest(request, documents, count=args.count)
+    if args.json:
+        print(json.dumps([r.model_dump(mode="json") for r in rows],
+                         ensure_ascii=False, indent=2))
+        return 0
+    for index, item in enumerate(rows, start=1):
+        print(f"{index}. {item.title}  [{item.angle}/{item.video_type} "
+              f"{item.score:.2f}]")
+        if args.verbose:
+            print(f"     {item.rationale}")
+    return 0
+
+
 # ---------------------------------------------------------------------- render
 def cmd_render(args: argparse.Namespace) -> int:
     runtime = get_runtime()
@@ -396,6 +567,69 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--renderer")
     p.add_argument("--render", action="store_true")
     p.set_defaults(func=cmd_create)
+
+    p = sub.add_parser("generate", help="one prompt → one MP4",
+                       description="Runs the whole pipeline: source → topic → "
+                                   "template → script → storyboard → render → "
+                                   "voice → compose → QC.")
+    p.add_argument("prompt", nargs="?", default="",
+                   help="what the video should be about")
+    p.add_argument("--topic", help="short topic title (overrides prompt-derived)")
+    p.add_argument("--source", help="URL, GitHub repo or file path to ground it in")
+    p.add_argument("--source-kind", default="auto",
+                   choices=["auto", "text", "markdown", "file", "webpage",
+                            "github", "url"])
+    p.add_argument("--max-chars", type=int, default=12000,
+                   help="cap on ingested source characters")
+    p.add_argument("--script", help="file with pre-written narration")
+    p.add_argument("--file", help="alias for --source pointing at a local file")
+    p.add_argument("--title")
+    p.add_argument("--language", default="zh-CN")
+    p.add_argument("--platform", choices=sorted(PLATFORM_PRESETS))
+    p.add_argument("--aspect", choices=["16:9", "9:16", "1:1", "4:5", "3:4"])
+    p.add_argument("--duration", type=float, help="target duration in seconds")
+    p.add_argument("--scenes", type=int)
+    p.add_argument("--template")
+    p.add_argument("--style")
+    p.add_argument("--voice")
+    p.add_argument("--no-captions", action="store_true")
+    p.add_argument("--preset", default="auto",
+                   choices=["auto", "fast", "balanced", "high_quality", "max_quality"])
+    p.add_argument("--llm")
+    p.add_argument("--tts")
+    p.add_argument("--renderer")
+    p.add_argument("--out", help="output directory")
+    p.add_argument("--no-wait", action="store_true",
+                   help="return immediately with a job id")
+    p.add_argument("--dry-run", action="store_true",
+                   help="plan and build the IR but do not render")
+    p.add_argument("--strict", action="store_true",
+                   help="treat QC failure as an error")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_generate)
+
+    p = sub.add_parser("templates", help="list video templates")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_templates)
+
+    p = sub.add_parser("styles", help="list style profiles")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_styles)
+
+    p = sub.add_parser("platforms", help="list platform presets")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_platforms)
+
+    p = sub.add_parser("topics", help="suggest angles for a topic")
+    p.add_argument("prompt", nargs="?", default="")
+    p.add_argument("--topic")
+    p.add_argument("--source")
+    p.add_argument("--source-kind", default="auto",
+                   choices=["auto", "text", "markdown", "file", "webpage",
+                            "github", "url"])
+    p.add_argument("--count", type=int, default=5)
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=cmd_topics)
 
     p = sub.add_parser("render", help="render a project through the runtime")
     p.add_argument("project")

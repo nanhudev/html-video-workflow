@@ -1,0 +1,62 @@
+{
+  "id": "editorial_argument",
+  "name": "Editorial Argument",
+  "version": "1.0.0",
+  "description": "观点驱动的叙述：先抛出一个反常识判断，再用证据支撑，最后落到行动。适合有明确立场的主题，不适合纯流程演示。",
+  "best_for": [
+    "explainer",
+    "essay",
+    "knowledge"
+  ],
+  "not_for": [
+    "product_demo",
+    "music_visualizer",
+    "avatar_presenter"
+  ],
+  "platforms": [],
+  "aspects": [],
+  "scene_count": {
+    "min": 4,
+    "max": 8,
+    "recommended": 5
+  },
+  "beats": [
+    "hook",
+    "claim",
+    "evidence",
+    "tension",
+    "payoff"
+  ],
+  "narration": {
+    "chars_per_sec": 5.2,
+    "max_chars_per_scene": 130,
+    "tone": "measured"
+  },
+  "layouts": [
+    "editorial_left",
+    "quote",
+    "split",
+    "stat"
+  ],
+  "motion_vocabulary": [
+    "reveal",
+    "progression",
+    "focus"
+  ],
+  "density": "balanced",
+  "requires": [],
+  "default_style": "editorial",
+  "compatible_styles": [
+    "editorial",
+    "blueprint",
+    "warm_paper",
+    "mono_ink",
+    "brand_neutral"
+  ],
+  "score_hints": {
+    "opinionated": 0.9,
+    "narrative": 0.8,
+    "numeric": 0.2,
+    "steps": 0.1
+  }
+}

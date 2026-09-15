@@ -1,0 +1,61 @@
+{
+  "id": "knowledge_primer",
+  "name": "Knowledge Primer",
+  "version": "1.0.0",
+  "description": "入门讲解：是什么、为什么需要、怎么用、边界在哪。信息密度中等，允许术语但每段都要解释。",
+  "best_for": [
+    "knowledge",
+    "tutorial",
+    "explainer"
+  ],
+  "not_for": [
+    "news",
+    "data_story",
+    "music_visualizer"
+  ],
+  "platforms": [],
+  "aspects": [],
+  "scene_count": {
+    "min": 4,
+    "max": 7,
+    "recommended": 5
+  },
+  "beats": [
+    "hook",
+    "definition",
+    "why",
+    "example",
+    "boundary"
+  ],
+  "narration": {
+    "chars_per_sec": 5.2,
+    "max_chars_per_scene": 120,
+    "tone": "friendly"
+  },
+  "layouts": [
+    "editorial_left",
+    "split",
+    "diagram",
+    "quote"
+  ],
+  "motion_vocabulary": [
+    "reveal",
+    "progression",
+    "connect"
+  ],
+  "density": "balanced",
+  "requires": [],
+  "default_style": "warm_paper",
+  "compatible_styles": [
+    "warm_paper",
+    "editorial",
+    "blueprint",
+    "brand_neutral"
+  ],
+  "score_hints": {
+    "structural": 0.7,
+    "steps": 0.5,
+    "opinionated": 0.3,
+    "numeric": 0.3
+  }
+}

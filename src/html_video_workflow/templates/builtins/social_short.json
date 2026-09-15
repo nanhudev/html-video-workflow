@@ -1,0 +1,63 @@
+{
+  "id": "social_short",
+  "name": "Social Short",
+  "version": "1.0.0",
+  "description": "竖屏短片：三秒内给钩子，每屏一句话，节奏快、字大。只在 9:16 下有意义，横屏选它会浪费掉一半画幅。",
+  "best_for": [
+    "social_short",
+    "news",
+    "explainer"
+  ],
+  "not_for": [
+    "documentary",
+    "tutorial",
+    "essay"
+  ],
+  "platforms": [],
+  "aspects": [
+    "9:16"
+  ],
+  "scene_count": {
+    "min": 3,
+    "max": 6,
+    "recommended": 4
+  },
+  "beats": [
+    "hook",
+    "turn",
+    "proof",
+    "cta"
+  ],
+  "narration": {
+    "chars_per_sec": 6.0,
+    "max_chars_per_scene": 60,
+    "tone": "punchy"
+  },
+  "layouts": [
+    "center",
+    "stat",
+    "full_bleed",
+    "quote"
+  ],
+  "motion_vocabulary": [
+    "reveal",
+    "progression",
+    "count",
+    "focus"
+  ],
+  "density": "dense",
+  "requires": [],
+  "default_style": "neon_night",
+  "compatible_styles": [
+    "neon_night",
+    "brand_neutral",
+    "editorial",
+    "mono_ink"
+  ],
+  "score_hints": {
+    "short": 1.0,
+    "vertical": 1.0,
+    "numeric": 0.5,
+    "structural": 0.2
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "id": "documentary_walkthrough",
+  "name": "Documentary Walkthrough",
+  "version": "1.0.0",
+  "description": "长一点的叙述：铺垫、展开、对照、收束。给素材充分的呼吸空间，适合有真实来源材料的题目。",
+  "best_for": [
+    "documentary",
+    "essay",
+    "knowledge"
+  ],
+  "not_for": [
+    "social_short",
+    "product_demo",
+    "news"
+  ],
+  "platforms": [],
+  "aspects": [],
+  "scene_count": {
+    "min": 6,
+    "max": 12,
+    "recommended": 8
+  },
+  "beats": [
+    "hook",
+    "context",
+    "development",
+    "contrast",
+    "detail",
+    "detail",
+    "turn",
+    "close"
+  ],
+  "narration": {
+    "chars_per_sec": 5.0,
+    "max_chars_per_scene": 150,
+    "tone": "reflective"
+  },
+  "layouts": [
+    "full_bleed",
+    "editorial_left",
+    "quote",
+    "split",
+    "overlay"
+  ],
+  "motion_vocabulary": [
+    "drift",
+    "reveal",
+    "depth",
+    "progression"
+  ],
+  "density": "sparse",
+  "requires": [
+    "sources"
+  ],
+  "default_style": "warm_paper",
+  "compatible_styles": [
+    "warm_paper",
+    "mono_ink",
+    "editorial",
+    "brand_neutral"
+  ],
+  "score_hints": {
+    "narrative": 1.0,
+    "long": 0.9,
+    "numeric": 0.2,
+    "short": 0.0
+  }
+}

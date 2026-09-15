@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import threading
 import time
 from pathlib import Path
@@ -9,10 +10,15 @@ from typing import Any, Callable
 
 from ..config.paths import projects_dir
 from ..config.settings import Settings, load_settings
+from ..core.errors import VideoErrorCode, VideoWorkflowError
+from ..core.request import CreateVideoRequest, VideoResult
 from ..hardware.profile import HardwareProfile, probe_hardware
 from ..pipeline import stages
+from ..planning.pipeline_planner import PipelinePlanner
+from ..planning.storyboard import StoryboardPlanner
 from ..project.ir import VideoProject
-from ..project.store import load_project, new_project_id, write_runtime_json
+from ..project.store import load_project, new_project_id, save_project, write_runtime_json
+from ..sources import resolve_source
 from ..utils.logging import attach_job_log, detach_job_log, get_logger
 from .events import emit, read_events
 from .models import Job, JobStatus
@@ -89,6 +95,40 @@ class VideoRuntime:
     def job_events(self, job_id: str) -> list[dict[str, Any]]:
         return read_events(job_id)
 
+    def job_result(self, job_id: str) -> VideoResult | None:
+        """Rebuild a VideoResult from a finished (or running) job.
+
+        Needed because ``POST /v1/videos?wait=false`` returns only an id; the
+        caller polls back and must get the *same* shape it would have received
+        had it waited.
+        """
+        job = self.get_job(job_id)
+        if job is None:
+            return None
+        result = VideoResult(
+            job_id=job.id,
+            project_id=job.project_id,
+            providers={"llm": job.plan.llm or "", "tts": job.plan.tts or "",
+                       "renderer": job.plan.renderer or "",
+                       "subtitle": job.plan.subtitle or ""},
+            fallbacks=[dict(item) for item in job.fallbacks],
+            qc=job.quality,
+            warnings=[],
+        )
+        video = job.outputs.get("video")
+        if job.status is JobStatus.COMPLETED and video and Path(video).exists():
+            result.ok = True
+            result.video_path = video
+            result.duration_sec = _probe_duration(Path(video))
+            result.width, result.height = _probe_size(Path(video)) or (None, None)
+        elif job.status is JobStatus.FAILED:
+            result.ok = False
+            result.error_code = VideoErrorCode.INTERNAL.value
+            result.error = job.errors[-1]["message"] if job.errors else "job failed"
+        result.status = job.status.value  # type: ignore[attr-defined]
+        result.progress = round(job.progress, 3)  # type: ignore[attr-defined]
+        return result
+
     # ---------------------------------------------------------------- run
     def create_job(self, project: VideoProject | str, preset: str | None = None,
                    overrides: dict[str, str] | None = None) -> Job:
@@ -128,6 +168,147 @@ class VideoRuntime:
             thread.start()
             return job
         return self._execute(job, project, on_event)
+
+    # ------------------------------------------------------------- one-click
+    def create_video(self, request: CreateVideoRequest) -> VideoResult:
+        """One request in, one MP4 out. This is the only product entry point.
+
+        The CLI, the REST API, the Python SDK, MCP and the Studio all land here.
+        Anything one of them needs that the others do not is a bug in this
+        method, not a feature of that entry point.
+        """
+        started = time.time()
+        try:
+            documents = resolve_source(request.source) if request.source else []
+            planner = PipelinePlanner()
+            plan = planner.plan(request, documents)
+            script = planner.build_script(plan, request, documents)
+            assert plan.template is not None and plan.style is not None
+            project = StoryboardPlanner().build(
+                script,
+                manifest=plan.template,
+                style=plan.style,
+                output=plan.output,  # type: ignore[arg-type]
+                request=request,
+                documents=documents,
+                video_type=plan.video_type,
+            )
+        except VideoWorkflowError as exc:
+            return VideoResult.failure(exc.code.value, exc.message, **exc.detail)
+        except Exception as exc:  # noqa: BLE001 - planning must not raise raw
+            log.exception("planning failed")
+            return VideoResult.failure(VideoErrorCode.PLANNING_FAILED.value,
+                                       f"{type(exc).__name__}: {exc}")
+
+        project_id, project_path = save_project(project)
+        plan.warnings.extend(getattr(script, "warnings", []) or [])
+        result = VideoResult(
+            project_id=project_id,
+            template=plan.template_id,
+            style=plan.style_id,
+            title=project.project.title,
+            scenes=len(script.beats),
+            duration_sec=round(script.total_duration, 2),
+            providers={"llm": plan.llm or "", "tts": plan.tts or "",
+                       "renderer": plan.renderer or "",
+                       "subtitle": plan.subtitle or ""},
+            reasons=plan.reasons,
+            warnings=list(plan.warnings),
+            artifacts={"project": str(project_path)},
+        )
+
+        if request.dry_run:
+            # Explicitly not a video run. Saying so is what separates this from
+            # a silent failure: ok=True with no path is only honest when the
+            # caller asked for no video.
+            result.ok = True
+            result.warnings.append("dry_run requested: planned only, no video produced")
+            result.elapsed_sec = round(time.time() - started, 2)
+            return result
+
+        overrides = request.overrides()
+        if plan.renderer:
+            overrides["renderer"] = plan.renderer
+        job = self.create_job(project, preset=request.preset, overrides=overrides)
+        result.job_id = job.id
+
+        if not request.wait:
+            self.run_job(job, project, background=True)
+            result.ok = True
+            result.warnings.append(
+                f"job {job.id} started; poll GET /v1/videos/{job.id} for the result")
+            result.elapsed_sec = round(time.time() - started, 2)
+            return result
+
+        try:
+            self.run_job(job, project)
+        except VideoWorkflowError as exc:
+            return self._failed(job, result, exc.code.value, exc.message, started)
+        except Exception as exc:  # noqa: BLE001 - a raw traceback is not a product
+            log.exception("job %s failed", job.id)
+            return self._failed(job, result, VideoErrorCode.INTERNAL.value,
+                                f"{type(exc).__name__}: {exc}", started)
+
+        result = self._completed(job, result, project, started, request.strict)
+        if request.out_dir and result.video_path:
+            # "Put it where I asked" is part of one-click. The canonical copy
+            # stays in the project directory; this is a delivery convenience.
+            destination = Path(request.out_dir)
+            destination.mkdir(parents=True, exist_ok=True)
+            target = destination / Path(result.video_path).name
+            shutil.copy2(result.video_path, target)
+            result.video_path = str(target)
+            result.artifacts["delivered"] = str(target)
+        return result
+
+    def _completed(self, job: Job, result: VideoResult, project: VideoProject,
+                   started: float, strict: bool) -> VideoResult:
+        result.job_id = job.id
+        result.providers = {
+            "llm": job.plan.llm or "", "tts": job.plan.tts or "",
+            "renderer": job.plan.renderer or "", "subtitle": job.plan.subtitle or "",
+        }
+        result.fallbacks = [dict(item) for item in job.fallbacks]
+        result.qc = job.quality
+        result.elapsed_sec = round(time.time() - started, 2)
+
+        video = job.outputs.get("video")
+        # "Completed" is a job state, not a promise about a file. The only thing
+        # that makes ok=True is a file on disk with bytes in it.
+        if not video:
+            result.ok = False
+            result.error_code = VideoErrorCode.COMPOSE_FAILED.value
+            result.error = job.errors[-1]["message"] if job.errors else "no video produced"
+            return result
+        path = Path(video)
+        if not path.exists() or path.stat().st_size == 0:
+            result.ok = False
+            result.error_code = VideoErrorCode.COMPOSE_FAILED.value
+            result.error = f"video file missing or empty: {video}"
+            return result
+
+        result.video_path = str(path)
+        result.duration_sec = _probe_duration(path) or project.estimated_duration()
+        result.width = project.output.width
+        result.height = project.output.height
+        result.ok = True
+
+        if strict and job.quality and not job.quality.get("passed"):
+            result.ok = False
+            result.error_code = VideoErrorCode.QUALITY_FAILED.value
+            result.error = f"quality gate failed: {job.quality.get('failed')}"
+        return result
+
+    def _failed(self, job: Job, result: VideoResult, code: str, message: str,
+                started: float) -> VideoResult:
+        result.job_id = job.id
+        result.ok = False
+        result.error_code = code
+        result.error = message
+        result.fallbacks = [dict(item) for item in job.fallbacks]
+        result.qc = job.quality
+        result.elapsed_sec = round(time.time() - started, 2)
+        return result
 
     def cancel(self, job_id: str) -> bool:
         with self._lock:
@@ -189,6 +370,43 @@ class VideoRuntime:
             self.persist(job)
             detach_job_log(handler)
         return job
+
+
+def _probe_size(path: Path) -> tuple[int, int] | None:
+    try:
+        from ..ffmpeg.service import get_service
+
+        service = get_service()
+        if not service.available():
+            return None
+        info = service.probe(path)
+    except Exception:  # noqa: BLE001
+        return None
+    for stream in info.get("streams") or []:
+        if stream.get("codec_type") == "video":
+            width, height = stream.get("width"), stream.get("height")
+            if width and height:
+                return int(width), int(height)
+    return None
+
+
+def _probe_duration(path: Path) -> float | None:
+    """Ask ffprobe, not the project file.
+
+    The IR's estimate is a plan; ffprobe on the artefact is a measurement. When
+    they disagree the measurement is right, and reporting the plan as fact is
+    exactly the kind of convenient lie this project refuses to tell.
+    """
+    try:
+        from ..ffmpeg.service import get_service
+
+        service = get_service()
+        if not service.available():
+            return None
+        return float(service.duration(path))
+    except Exception:  # noqa: BLE001 - a probe failure must not fail the result
+        log.debug("duration probe failed for %s", path)
+        return None
 
 
 _runtime: VideoRuntime | None = None

@@ -120,8 +120,112 @@ export interface JobView {
 }
 
 // -------------------------------------------------------------------- calls
+// ------------------------------------------------------------- v1 (product)
+/** The product surface. Same shape the CLI and SDK receive. */
+export interface VideoResult {
+  ok: boolean;
+  job_id: string | null;
+  project_id: string | null;
+  video_path: string | null;
+  duration_sec: number | null;
+  width: number | null;
+  height: number | null;
+  scenes: number;
+  template: string | null;
+  style: string | null;
+  title: string | null;
+  providers: Record<string, string>;
+  fallbacks: Record<string, string>[];
+  warnings: string[];
+  reasons: string[];
+  qc: { passed: boolean; failed: string[]; warned: string[] } | null;
+  error: string | null;
+  error_code: string | null;
+  elapsed_sec: number | null;
+  status?: string | null;
+  progress?: number | null;
+}
+
+export interface TemplateManifest {
+  id: string;
+  name: string;
+  description: string;
+  best_for: string[];
+  not_for: string[];
+  aspects: string[];
+  scene_count: { min: number; max: number; recommended: number };
+  beats: string[];
+  density: string;
+  default_style: string;
+  compatible_styles: string[];
+  requires: string[];
+}
+
+export interface StyleProfile {
+  id: string;
+  name: string;
+  description: string;
+  palette: Record<string, string>;
+  motion_bias: string;
+  tags: string[];
+}
+
+export interface PlatformPreset {
+  id: string;
+  label: string;
+  aspect: string;
+  width: number;
+  height: number;
+  safe_bottom: number;
+  max_duration_sec: number | null;
+}
+
+export interface TopicSuggestion {
+  title: string;
+  angle: string;
+  rationale: string;
+  video_type: string;
+  score: number;
+  source: string;
+}
+
+export interface CreateVideoBody {
+  prompt?: string;
+  topic?: string;
+  source?: { kind?: string; value: string };
+  script?: string;
+  title?: string;
+  language?: string;
+  platform?: string;
+  aspect?: string;
+  duration_sec?: number;
+  scenes?: number;
+  template?: string;
+  style?: string;
+  voice?: string;
+  captions?: boolean;
+  preset?: string;
+  wait?: boolean;
+  dry_run?: boolean;
+  strict?: boolean;
+  created_by?: string;
+}
+
 export const api = {
   health: () => request<{ status: string; version: string }>("/health"),
+
+  // ---- v1: the one-click product API
+  createVideo: (body: CreateVideoBody) =>
+    request<VideoResult>("/v1/videos", { method: "POST", body: JSON.stringify(body) }),
+  video: (jobId: string) => request<VideoResult>(`/v1/videos/${jobId}`),
+  templates: () => request<TemplateManifest[]>("/v1/templates"),
+  styles: () => request<StyleProfile[]>("/v1/styles"),
+  platforms: () => request<PlatformPreset[]>("/v1/platforms"),
+  suggestTopics: (prompt: string, count = 5) =>
+    request<TopicSuggestion[]>(
+      `/v1/topics/suggest?prompt=${encodeURIComponent(prompt)}&count=${count}`,
+    ),
+
   system: () => request<SystemInfo>("/system"),
   hardware: (refresh = false) => request<HardwareProfile>(`/hardware?refresh=${refresh}`),
   providers: (type?: string) =>

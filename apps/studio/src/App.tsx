@@ -1,16 +1,18 @@
 import { useEffect, useState } from "react";
 import { api } from "./api";
 import Dashboard from "./pages/Dashboard";
+import Generate from "./pages/Generate";
 import Hardware from "./pages/Hardware";
 import Providers from "./pages/Providers";
 import Projects from "./pages/Projects";
 import NewProject from "./pages/NewProject";
 import SettingsPage from "./pages/Settings";
 
-type Route = "home" | "projects" | "new" | "providers" | "hardware" | "settings";
+type Route = "home" | "generate" | "projects" | "new" | "providers" | "hardware" | "settings";
 
 const NAV: { id: Route; label: string; badge?: string }[] = [
   { id: "home", label: "Home" },
+  { id: "generate", label: "Generate" },
   { id: "new", label: "New Project" },
   { id: "projects", label: "Projects" },
   { id: "providers", label: "Providers" },
@@ -74,6 +76,7 @@ export default function App() {
       </aside>
       <main className="main">
         {route === "home" && <Dashboard onNavigate={go} />}
+        {route === "generate" && <Generate />}
         {route === "new" && <NewProject onCreated={() => go("projects")} />}
         {route === "projects" && <Projects />}
         {route === "providers" && <Providers />}

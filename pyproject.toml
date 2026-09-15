@@ -4,11 +4,17 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "html-video-workflow"
-version = "0.2.0"
-description = "Local-first agentic video production runtime (HTML Video Workflow Next)"
+version = "0.3.0"
+description = "Local-first agentic video production runtime — one prompt in, one MP4 out"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
+keywords = ["video", "ffmpeg", "agent", "mcp", "tts", "html"]
+classifiers = [
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Multimedia :: Video",
+    "Environment :: Console",
+]
 dependencies = [
     "pydantic>=2.7",
     "python-dotenv>=1.0",
@@ -27,12 +33,17 @@ dev = [
 
 [project.scripts]
 html-video = "html_video_workflow.cli:main"
+html-video-mcp = "html_video_workflow.mcp.server:serve_stdio"
+
+[project.urls]
+Homepage = "https://github.com/nanhudev/html-video-workflow"
+Documentation = "https://github.com/nanhudev/html-video-workflow/blob/main/docs/API.md"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-html_video_workflow = ["py.typed"]
+html_video_workflow = ["py.typed", "templates/builtins/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
