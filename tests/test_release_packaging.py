@@ -17,6 +17,7 @@ bug this module exists to prevent.
 from __future__ import annotations
 
 import importlib.util
+import io
 import os
 import sys
 from pathlib import Path
@@ -251,6 +252,35 @@ def test_the_zip_carries_the_readme_and_the_bin_folder(pack_release, tmp_path):
     assert "html-video/html-video.exe" in names
     assert f"html-video/bin/{_tool('ffmpeg')}" in names
     assert "html-video/使用说明.txt" in names
+
+
+def test_a_console_that_cannot_encode_chinese_does_not_fail_the_print(pack_release):
+    """How the first v0.4.0 release build died, one line into `main()`.
+
+    The hosted Windows runner gives stdout cp1252, and this script prints Chinese
+    from its opening line. Under the default `errors="strict"` that raises
+    UnicodeEncodeError and exits 1 having built nothing — a traceback pointing at
+    a `print` rather than at the build. The small vs console encoding relationship
+    is the same one the locale-codec subprocess trap turns on.
+    """
+    stream = io.TextIOWrapper(io.BytesIO(), encoding="cp1252", errors="strict")
+
+    assert pack_release.make_streams_unfailing((("probe", stream),)) == ["probe"]
+    print("构建 html-video 0.4.0 → dist/release", file=stream)  # used to raise
+
+
+def test_main_secures_the_console_before_printing_anything(pack_release, monkeypatch):
+    """The guard has to run before the first line, and nothing prints before it."""
+    order: list[str] = []
+    monkeypatch.setattr(pack_release, "build_frontend",
+                        lambda *a, **k: order.append("frontend"))
+    monkeypatch.setattr(pack_release, "stage_frontend",
+                        lambda *a, **k: order.append("stage"))
+    monkeypatch.setattr(pack_release, "make_streams_unfailing",
+                        lambda *a, **k: (order.append("console"), [])[1])
+
+    assert pack_release.main(["--skip-exe"]) == 0
+    assert order[0] == "console"
 
 
 def test_the_documented_commands_are_real_flags(pack_release):

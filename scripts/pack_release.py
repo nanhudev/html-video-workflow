@@ -34,6 +34,14 @@ import sys
 import zipfile
 from pathlib import Path
 
+# Nearly every line this script prints is Chinese, and a Windows runner hands
+# stdout the *locale* encoding — cp1252 on GitHub's hosted image. That turns the
+# very first progress line into a UnicodeEncodeError and exits 1 before anything
+# is built, with a traceback that points at a `print` and not at the build.
+# Securing the streams is therefore the first thing `main()` does, not a detail:
+# it is the difference between a red release build and a red *diagnosable* one.
+from html_video_workflow.utils.console import make_streams_unfailing
+
 ROOT = Path(__file__).resolve().parents[1]
 STUDIO = ROOT / "apps" / "studio"
 PACKAGE = ROOT / "src" / "html_video_workflow"
@@ -345,6 +353,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Before the first print, because the first print is already Chinese.
+    make_streams_unfailing()
     args = build_parser().parse_args(argv)
 
     out_dir = Path(args.out)
