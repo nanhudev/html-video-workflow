@@ -326,7 +326,12 @@ def make_zip(app_dir: Path, out_dir: Path, version_str: str) -> Path:
     return archive
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
+    """The command-line surface, split out so it can be tested.
+
+    The module docstring doubles as the maintainer's copy-paste source, and a
+    flag that has drifted out of the parser is a build someone cannot run.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", default=str(ROOT / "dist" / "release"))
     parser.add_argument("--skip-frontend", action="store_true")
@@ -336,7 +341,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--allow-no-tools", action="store_true",
                         help="找不到 ffmpeg 时只警告；默认直接失败，"
                              "因为发布包承诺用户不用另外安装任何东西")
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
 
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
