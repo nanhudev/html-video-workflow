@@ -290,3 +290,46 @@ def test_the_documented_commands_are_real_flags(pack_release):
     for flag in ("--skip-exe", "--skip-frontend", "--allow-no-tools"):
         assert parser.parse_args([flag])
     assert parser.parse_args(["--ffmpeg-bin", "D:/ffmpeg/bin"]).ffmpeg_bin == "D:/ffmpeg/bin"
+
+
+# ------------------------------------------------------------------- npm
+def test_npm_is_resolved_rather_than_named(pack_release, monkeypatch, tmp_path):
+    """A bare `npm` is a FileNotFoundError on Windows, where npm is npm.cmd.
+
+    `CreateProcess` does not apply PATHEXT, so `subprocess.run(["npm", "ci"])`
+    fails on the runner while the same line works in a terminal. The whole
+    release build died there, and the only symptom was an exit code.
+    """
+    fake = tmp_path / "npm.cmd"
+    fake.write_text("@echo off\n", encoding="utf-8")
+    monkeypatch.setattr(pack_release.shutil, "which",
+                        lambda name: str(fake) if name == "npm" else None)
+
+    assert pack_release.npm() == str(fake)
+
+
+def test_a_machine_without_npm_says_so(pack_release, monkeypatch):
+    """`--skip-frontend` exists, so the answer is never a raw traceback."""
+    monkeypatch.setattr(pack_release.shutil, "which", lambda name: None)
+
+    with pytest.raises(SystemExit) as caught:
+        pack_release.npm()
+    assert "Node.js" in str(caught.value)
+
+
+def test_the_frontend_build_uses_the_resolved_npm(
+    pack_release, monkeypatch, tmp_path,
+):
+    """The resolver is load-bearing: it must be the path that gets run."""
+    seen: list[list[str]] = []
+
+    (tmp_path / "node_modules").mkdir()  # installed: `npm ci` is not repeated
+    monkeypatch.setattr(pack_release, "STUDIO", tmp_path)
+    monkeypatch.setattr(pack_release, "_try_clear", lambda directory: None)
+    monkeypatch.setattr(pack_release, "npm", lambda: "C:/Program Files/nodejs/npm.cmd")
+    monkeypatch.setattr(pack_release, "run",
+                        lambda command, cwd=None: seen.append(list(command)))
+
+    pack_release.build_frontend(False)
+
+    assert seen == [["C:/Program Files/nodejs/npm.cmd", "run", "build"]]

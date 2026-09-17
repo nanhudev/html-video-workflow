@@ -42,6 +42,11 @@ versioning.
   run without a shell, and both stdout and stderr are surfaced with the exit code.
   PyInstaller also runs at `--log-level INFO` (it was `WARN`, which hid the
   reason for the failure).
+- **…and then failed again, for want of four characters.** With the shell gone,
+  `["npm", "ci"]` reached `CreateProcess` directly, which does not apply
+  `PATHEXT` — npm on Windows is `npm.cmd`, so the build raised
+  `FileNotFoundError` and reported only `exit code 1`. npm is now resolved with
+  `shutil.which` (which does apply `PATHEXT`) instead of being named.
 
 ### Added
 

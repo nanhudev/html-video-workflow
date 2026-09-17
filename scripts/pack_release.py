@@ -144,12 +144,30 @@ def version() -> str:
     return match.group(1) if match else "0.0.0"
 
 
+def npm() -> str:
+    """Where npm actually is, resolved rather than assumed.
+
+    ``subprocess`` hands the name straight to ``CreateProcess``, which does
+    **not** apply ``PATHEXT`` — so on Windows, where npm ships as ``npm.cmd``,
+    ``["npm", "ci"]`` raises ``FileNotFoundError`` even though typing ``npm ci``
+    in a terminal works fine. On the runner that surfaced as nothing but
+    "Process completed with exit code 1", an entire release build failing for
+    want of four characters. ``shutil.which`` applies ``PATHEXT``, so what it
+    returns is what the shell would have run.
+    """
+    for name in ("npm", "npm.cmd", "npm.exe"):
+        found = shutil.which(name)
+        if found:
+            return found
+    raise SystemExit("找不到 npm，请先安装 Node.js 20+，或加 --skip-frontend。")
+
+
 def build_frontend(skip: bool) -> None:
     if skip:
         print("跳过前端构建。")
         return
     if not (STUDIO / "node_modules").is_dir():
-        run(["npm", "ci"], cwd=STUDIO)
+        run([npm(), "ci"], cwd=STUDIO)
     # Clear the previous build from Python rather than letting Vite do it.
     # Vite empties its out directory through `fs.rmSync`, and a guarded sandbox
     # (this project is developed behind one, where a bulk delete over ~50 files
@@ -158,7 +176,7 @@ def build_frontend(skip: bool) -> None:
     # beside a fresh index.html — just without the tripwire.
     dist = STUDIO / "dist"
     _try_clear(dist)
-    run(["npm", "run", "build"], cwd=STUDIO)
+    run([npm(), "run", "build"], cwd=STUDIO)
 
 
 def _try_clear(directory: Path) -> None:
