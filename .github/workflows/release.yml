@@ -138,8 +138,14 @@ jobs:
         run: |
           $tag = "${{ github.ref_name }}"
           $zip = Get-ChildItem "dist/release/*.zip" | Select-Object -First 1
+          # Composed *before* the here-string. `$($zip.Name)` inside a
+          # double-quoted here-string was rendered once as literal text, so the
+          # very first line a new user read was `$(D:\a\...\zip.Name)` — a
+          # download instruction that is worse than none, because it looks like
+          # it is telling you something.
+          $name = $zip.Name
           $notes = @"
-          下载 `$($zip.Name)`，解压后双击 `html-video.exe` 即可。无需安装 Python、Node 或 FFmpeg。
+          下载 $name，解压后双击 `html-video.exe` 即可。无需安装 Python、Node 或 FFmpeg。
 
           ### 使用前提
           - Windows 10 / 11（64 位）
