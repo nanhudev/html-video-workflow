@@ -53,7 +53,19 @@ jobs:
       - name: Build the portable bundle
         shell: pwsh
         run: |
-          $bin = Split-Path (Get-Command ffmpeg.exe).Source
+          $ErrorActionPreference = "Stop"
+          # `Get-Command ffmpeg.exe` finds Chocolatey's shim, not ffmpeg: a small
+          # proxy that names an absolute path existing only on this machine.
+          # Handing that to the build is how a release ships a 200 KB file that
+          # dies on first render. Find the real binary under the package instead,
+          # and say so — size is the only thing that distinguishes them.
+          $root = if ($env:ChocolateyInstall) { "$env:ChocolateyInstall\lib\ffmpeg" }
+                  else { "C:\ProgramData\chocolatey\lib\ffmpeg" }
+          $real = Get-ChildItem $root -Recurse -Filter ffmpeg.exe -ErrorAction SilentlyContinue |
+                  Where-Object { $_.Length -gt 10MB } | Select-Object -First 1
+          if (-not $real) { throw "no real ffmpeg.exe under $root" }
+          $bin = $real.DirectoryName
+          Write-Host "ffmpeg: $($real.FullName) ($([math]::Round($real.Length / 1MB, 1)) MB)"
           python scripts/pack_release.py --ffmpeg-bin $bin
 
       # ------------------------------------------------------------ smoke test

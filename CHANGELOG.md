@@ -42,6 +42,10 @@ versioning.
   run without a shell, and both stdout and stderr are surfaced with the exit code.
   PyInstaller also runs at `--log-level INFO` (it was `WARN`, which hid the
   reason for the failure).
+- **…and then failed again on Chocolatey's shim.** The release runner handed the
+  build `Get-Command ffmpeg.exe`, which is Chocolatey's proxy — correctly
+  refused, since a shim only works on the machine that made it. The workflow now
+  finds the real binary under the package directory and prints its size.
 - **…and then failed again, for want of four characters.** With the shell gone,
   `["npm", "ci"]` reached `CreateProcess` directly, which does not apply
   `PATHEXT` — npm on Windows is `npm.cmd`, so the build raised
