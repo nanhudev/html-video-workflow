@@ -28,7 +28,7 @@
     "payoff"
   ],
   "narration": {
-    "chars_per_sec": 5.2,
+    "chars_per_sec": 3.35,
     "max_chars_per_scene": 130,
     "tone": "measured"
   },

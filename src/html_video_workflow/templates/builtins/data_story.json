@@ -29,7 +29,7 @@
     "payoff"
   ],
   "narration": {
-    "chars_per_sec": 5.4,
+    "chars_per_sec": 3.48,
     "max_chars_per_scene": 110,
     "tone": "precise"
   },

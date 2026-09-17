@@ -304,6 +304,110 @@ def test_no_two_layers_share_a_slot_until_slots_run_out() -> None:
     assert len(set(keys)) == len(keys), keys
 
 
+def test_surplus_layers_never_land_on_the_same_coordinates() -> None:
+    """The invariant that matters is position, not slot name.
+
+    The previous version of this file asserted unique *slot keys* and passed
+    while the render was broken, because the leftover sweep handed two layers the
+    same key (and therefore byte-identical CSS). A viewer cannot see a slot name;
+    they see two paragraphs printed through each other. So this walks every
+    layout and every layer count that a scene could plausibly carry and asserts
+    the geometry is distinct.
+    """
+    from html_video_workflow.renderers.layout import LayoutResult, BUILDERS
+
+    engine = LayoutEngine()
+    for name, build in BUILDERS.items():
+        for count in range(2, 9):
+            layers = [_text("headline", "标题")]
+            layers += [_text("body", f"正文 {i}") for i in range(count - 1)]
+            result = LayoutResult(name=name, slots=build(count))
+            placed = engine.assign(result, layers)
+            spots = [(round(slot.x, 3), round(slot.y, 3)) for _l, slot, _k in placed]
+            assert len(set(spots)) == len(spots), (
+                f"{name} with {count} layers placed two layers at the same "
+                f"position: {spots}"
+            )
+
+
+def test_critic_flags_a_shared_position_as_an_error() -> None:
+    """AA-013 exists because the layout engine is not the only writer.
+
+    A hand-built or legacy scene can still hand two layers one band, and the
+    critic is the thing that has to notice before it reaches a viewer.
+    """
+    critic = VisualDesignCritic()
+    facts = SceneFacts(
+        index=1,
+        layer_count=2,
+        slot_positions=[("secondary", 0.72, 0.30), ("figure", 0.72, 0.30)],
+    )
+    report = critic.review(facts)
+    collisions = [f for f in report.findings if f.rule == "AA-013"]
+    assert collisions, "a shared position must be reported"
+    assert collisions[0].severity == "error"
+    assert report.has_blocking
+
+
+def test_critic_does_not_flag_deliberate_stacking() -> None:
+    """Media under a caption is the design; text over text is the bug."""
+    critic = VisualDesignCritic()
+    facts = SceneFacts(
+        index=1,
+        layer_count=2,
+        slot_positions=[("primary", 0.08, 0.24), ("secondary", 0.08, 0.64)],
+    )
+    assert not [f for f in critic.review(facts).findings if f.rule == "AA-013"]
+
+
+def test_decoration_keeps_its_declared_geometry() -> None:
+    """A divider written as 22%×1% must stay a line, not inherit a content band.
+
+    Handing it `secondary` (52% wide, 22% tall) turned the accent rule into a
+    solid accent rectangle on every scene of a shipped render, because the slot's
+    `min-height` and the shape's `height` disagree and the browser picks one.
+    """
+    rule = {"type": "shape", "role": "background", "kind": "rule",
+            "layout": {"x": 0.075, "y": 0.80, "w": 0.22, "h": 0.01}}
+    layers = [_text("headline", "标题"), _text("body", "正文"), rule]
+    engine = LayoutEngine()
+    result = engine.choose({"layers": layers})
+    placed = engine.assign(result, layers)
+    _layer, slot, key = placed[-1]
+    assert key.startswith("decor:")
+    assert (round(slot.w, 3), round(slot.h, 3)) == (0.22, 0.01), (
+        f"decoration was resized to {slot.w:.2f}×{slot.h:.2f}"
+    )
+
+
+def test_decoration_does_not_consume_a_content_slot() -> None:
+    """The band it would have taken has to stay available for real content."""
+    rule = {"type": "shape", "role": "background", "kind": "rule",
+            "layout": {"x": 0.075, "y": 0.80, "w": 0.22, "h": 0.01}}
+    layers = [_text("headline", "标题"), _text("body", "正文"),
+              _text("label", "标签"), rule]
+    engine = LayoutEngine()
+    result = engine.choose({"layers": layers})
+    keys = [key for _l, _s, key in engine.assign(result, layers)]
+    content = [k for k in keys if not k.startswith("decor:")]
+    assert len(set(content)) == len(content), keys
+
+
+def test_a_background_image_is_media_not_furniture() -> None:
+    """`role: background` on a picture means hero, not decoration.
+
+    Over-fitting the decoration rule to the role string would strip an image of
+    its full-bleed slot and size it to whatever the IR happened to declare.
+    """
+    layers = [_text("headline", "本地优先"),
+              {"type": "image", "src": "hero.png", "role": "background",
+               "layout": {"x": 0.0, "y": 0.0, "w": 0.3, "h": 0.2}}]
+    engine = LayoutEngine()
+    result = engine.choose({"visual_strategy": "image_led", "layers": layers})
+    keys = [key for _l, _s, key in engine.assign(result, layers)]
+    assert "media" in keys, keys
+
+
 def test_stat_bands_do_not_overlap() -> None:
     """A slot is a minimum height; generous bands invite overflow collisions.
 

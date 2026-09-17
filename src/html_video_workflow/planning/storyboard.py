@@ -280,7 +280,18 @@ def _on_screen_body(text: str, limit: int = 46) -> str:
     sentence = re.split(r"(?<=[。！？.!?])\s*", cleaned)[0]
     if len(sentence) <= limit:
         return sentence
-    return sentence[: limit - 1].rstrip("，,、 ") + "…"
+    # Cut on a clause boundary. This was `sentence[:limit-1] + "…"`, which put
+    # "……去往别人的…" in the body column — a chopped word plus an ellipsis, the
+    # clearest possible sign that a machine ran out of characters. When the
+    # sentence has no boundary inside the budget, keep the *whole* clause and let
+    # the layout engine's height auto-fit handle it: slightly long text reads
+    # correctly, truncated text does not.
+    window = sentence[:limit]
+    for pivot in ("，", ",", "、", "：", ":", "；", ";", " ", "—"):
+        cut = window.rfind(pivot)
+        if cut >= max(8, limit // 4):
+            return window[:cut].rstrip()
+    return sentence
 
 
 def _svg_flow(label: str, index: int) -> str:

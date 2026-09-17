@@ -151,6 +151,13 @@ class SceneFacts:
     background_color: str = "#000000"
     largest_is_large_text: bool = False
     background_has_motion: bool = False
+    #: Placed slot geometry, as ``(key, x, y)`` per layer that draws its own
+    #: content. Two layers that share a position render on top of one another,
+    #: which is the one defect a viewer reads as "broken" rather than "plain", so
+    #: it is checked here rather than trusted to the layout engine. This includes
+    #: figures and shapes, not just text: a body paragraph and a flow diagram
+    #: handed the same band is exactly how a shipped scene ended up illegible.
+    slot_positions: list[tuple[str, float, float]] = field(default_factory=list)
 
 
 class VisualDesignCritic:
@@ -177,6 +184,7 @@ class VisualDesignCritic:
             self._long_lines,
             self._contrast,
             self._no_ambient_motion,
+            self._overlapping_layers,
         )
         for check in checks:
             finding = check(facts)
@@ -335,6 +343,33 @@ class VisualDesignCritic:
                 "no parallax or ambient layer",
                 "give the background layer a slow parallax",
             )
+        return None
+
+    # ------------------------------------------------------------- AA-013
+    def _overlapping_layers(self, facts: SceneFacts) -> Finding | None:
+        """Two layers placed at the same coordinates print through each other.
+
+        Severity is `error`, not `warning`, because this is the only finding in
+        the set that a viewer reads as a broken render rather than a stylistic
+        miss: the text is not merely cramped, it is *illegible*, and the frame
+        looks like a screenshot of a bug. It reached a shipped build once, via
+        the layout engine's leftover sweep reusing a slot — which is exactly the
+        kind of thing a rule catches and a reviewer does not.
+        """
+        positions = facts.slot_positions
+        if len(positions) < 2:
+            return None
+        seen: dict[tuple[float, float], str] = {}
+        for key, x, y in positions:
+            spot = (round(x, 3), round(y, 3))
+            if spot in seen:
+                return Finding(
+                    "AA-013", "error",
+                    f"two layers occupy the same position ({spot[0]}, {spot[1]})",
+                    f"'{seen[spot]}' and '{key}' render on top of one another",
+                    "give the later layer its own band, or stack it clear of the first",
+                )
+            seen[spot] = key
         return None
 
 

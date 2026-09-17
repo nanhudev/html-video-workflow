@@ -7,7 +7,7 @@ the scene's declared strategy and its layer roles.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
 LayoutName = Literal[
@@ -55,6 +55,72 @@ class Slot:
 
 def _clamp01(value: float) -> float:
     return max(0.0, min(1.0, float(value)))
+
+
+#: How far one surplus layer is pushed below the previous occupant of its slot,
+#: as a fraction of that slot's own band height. A third rather than a full slot
+#: because two supporting paragraphs stacked under a margin-heavy layout should
+#: stay inside the frame; the cost of being slightly tight is a little less air,
+#: while the cost of a full hop is text running off the bottom edge.
+_STACK_STEP = 0.34
+
+
+def _stacked(slot: Slot, depth: int) -> Slot:
+    """A copy of `slot` moved down so layer `depth` cannot print over its peers.
+
+    `depth` counts earlier occupants of the same slot (0 = the first, returned
+    untouched). The vertical offset is expressed in the same fraction-of-usable-
+    area units as `Slot.y`, so it survives every aspect ratio unchanged.
+
+    The offset saturates rather than accumulating without bound — but a saturating
+    clamp alone would *reintroduce* the bug it exists to prevent, because two deep
+    layers would both land on the ceiling and collide again. So the step is
+    derived from the depth: it shrinks as the stack grows, giving every occupant a
+    distinct y while the total stays under `_MAX_STACK_SHIFT` for any depth.
+    """
+    if depth <= 0:
+        return slot
+    # Harmonic-ish decay: sum of step/k for k in 1..depth stays logarithmic, so
+    # distinct offsets never exceed the cap no matter how many layers pile up.
+    shift = 0.0
+    for step in range(1, depth + 1):
+        shift += _MAX_STACK_SHIFT / (step + 1)
+    shift = min(shift, _MAX_STACK_SHIFT * depth / (depth + 1))
+    return replace(slot, y=_clamp01(slot.y + shift),
+                   notes=[*slot.notes, f"stacked below {depth} earlier layer(s)"])
+
+
+#: Ceiling on the stacked offset so a long tail cannot march off the frame. The
+#: safe area keeps ~7% at the bottom; staying under this is what keeps the last
+#: stacked layer inside it.
+_MAX_STACK_SHIFT = 0.16
+
+
+#: Where decoration lands when the IR did not say. Bottom-left, under the text,
+#: which is where a divider belongs in every layout the engine offers.
+_DEFAULT_DECOR = (0.075, 0.80, 0.22, 0.01)
+
+
+def _declared_slot(layer: dict[str, Any]) -> Slot:
+    """A Slot built from the layer's *own* declared geometry.
+
+    Decoration carries its intent in `layer["layout"]` — a divider is written as
+    `{w: 0.22, h: 0.01}` precisely so it stays a line. Reading that back is the
+    whole point: assigning decoration to a content band discards the one piece of
+    information that says how big it should be.
+    """
+    declared = layer.get("layout") or {}
+    if not isinstance(declared, dict):
+        declared = {}
+    x, y, w, h = _DEFAULT_DECOR
+    try:
+        x = _clamp01(declared.get("x", x))
+        y = _clamp01(declared.get("y", y))
+        w = _clamp01(declared.get("w", w)) or w
+        h = _clamp01(declared.get("h", h)) or h
+    except (TypeError, ValueError):
+        x, y, w, h = _DEFAULT_DECOR
+    return Slot(x, y, w, h, z=1, notes=["decoration keeps its declared geometry"])
 
 
 @dataclass
@@ -309,18 +375,37 @@ class LayoutEngine:
         3. leftovers, filled in reading order. Nothing is ever dropped.
         """
         order = self._slot_order(result)
-        placed: list[tuple[dict[str, Any], Slot, str]] = []
         taken: set[str] = set()
+        placed: list[tuple[dict[str, Any], Slot | None, str]] = [
+            (layer, None, "") for layer in layers
+        ]
 
         # Sweep 1 — media. A scene has at most one thing that *is* the picture,
         # and the picture must not be chosen by layer index (see above).
+        #
+        # Decoration is settled first, before any slot is claimed, because a
+        # decorative layer has no business occupying a content band. A hairline
+        # accent rule that gets handed `secondary` stops being a hairline: it
+        # inherits the band's width and, because `Slot.css` sets `min-height`
+        # while the shape sets `height`, the browser paints a full-size accent
+        # *block* where the design called for a 3px line. That is how a shipped
+        # `glass-aurora` render grew a teal square on the right of every scene.
+        # Such layers carry their own geometry in the IR, so they get it.
+        decorative = [
+            position for position, layer in enumerate(layers)
+            if self._is_decoration(layer)
+        ]
+        for position in decorative:
+            placed[position] = (layers[position], _declared_slot(layers[position]),
+                                f"decor:{position}")
+
         for position, layer in enumerate(layers):
+            if self._is_decoration(layer):
+                continue
             key = self._dedicated_key(layer, media_pass=True, result=result, taken=taken)
             if key is not None:
                 taken.add(key)
-                placed.append((layer, result.slots[key], key))
-            else:
-                placed.append((layer, None, ""))  # type: ignore[arg-type]
+                placed[position] = (layer, result.slots[key], key)
         del position
 
         # Sweep 2 — text roles, in *importance* order rather than list order.
@@ -340,16 +425,45 @@ class LayoutEngine:
         del position
 
         # Sweep 3 — whatever is left fills the remaining slots in reading order.
+        #
+        # Once the leftovers run out the surplus layers must go *somewhere*, and
+        # the obvious `min(cursor, len - 1)` — "share the last slot" — is the
+        # worst possible answer: two layers handed byte-identical CSS land on the
+        # same coordinates and print through each other. That is not a subtle
+        # degradation, it is the single defect a viewer notices immediately, and
+        # it shipped: a `_diagram` scene with four text layers rendered its last
+        # two on top of one another.
+        #
+        # So the surplus is *stacked* instead of overlaid. Every extra layer
+        # inherits the last slot but is pushed clear of everything already in it,
+        # using that slot's own minimum height as the step. Nothing vanishes,
+        # nothing collides, and the block simply grows downward past its band —
+        # which `Slot` already permits ("a slot is a *minimum* height and may be
+        # outgrown"). Layouts whose last band is near the bottom of the frame are
+        # the reason the step is a fraction of the slot rather than all of it: a
+        # tight stack of supporting text still stays inside the safe area far
+        # more often than a full-slot hop would.
         remaining = [key for key in order if key not in taken]
         cursor = 0
+        # Every slot key that has been spoken for, whether by an earlier sweep or
+        # by this one. Seeded from the layers already placed so a leftover that
+        # lands in an occupied slot knows it is the second occupant, not the
+        # first — deriving the count from `taken` alone misses exactly that case.
+        occupancy: dict[str, int] = {}
+        for _, _, key in placed:
+            if key:
+                occupancy[key] = occupancy.get(key, 0) + 1
         for index, (layer, slot, key) in enumerate(placed):
             if slot is not None:
                 continue
-            # A layer placed by index must still be able to reach `primary`; once
-            # the leftovers run out it shares the last one rather than vanishing.
-            chosen = remaining[min(cursor, len(remaining) - 1)] if remaining else "primary"
-            cursor += 1
-            placed[index] = (layer, result.slots[chosen], chosen)
+            if remaining:
+                chosen = remaining.pop(0)
+            else:
+                # No slot left at all: share the last one, stacked, like the rest.
+                chosen = order[-1] if order else "primary"
+            occupancy[chosen] = occupancy.get(chosen, 0)
+            placed[index] = (layer, _stacked(result.slots[chosen], occupancy[chosen]), chosen)
+            occupancy[chosen] += 1
         return placed
 
     #: Lower number = claims a display slot sooner. A headline outranks a label
@@ -363,6 +477,34 @@ class LayoutEngine:
     def _text_rank(cls, layer: dict[str, Any]) -> int:
         role = (str(layer.get("role") or "")).lower()
         return cls.TEXT_RANK.get(role, 5)
+
+    @staticmethod
+    def _is_decoration(layer: dict[str, Any]) -> bool:
+        """Whether this layer is furniture rather than content.
+
+        Decoration is drawn from its own declared box, not from a content band:
+        a divider rule, an accent block, a background wash. Letting these compete
+        for slots both starves the real content and distorts the decoration —
+        the browser resolves the conflict between the slot's `min-height` and the
+        shape's `height` in favour of whichever came later, which is how a 3px
+        line becomes a full-width accent rectangle.
+
+        A *picture* is never decoration, however it is labelled: an image marked
+        `role: background` is a full-bleed hero, and it belongs in the media slot
+        where `object-fit: cover` can size it. The check is on what the layer
+        draws, not on the role string alone.
+        """
+        kind = str(layer.get("type") or "text").lower()
+        role = str(layer.get("role") or "").lower()
+        if kind in {"image", "video"}:
+            return False
+        if role == "background":
+            return True
+        if kind == "shape":
+            # `ring` and the default bordered box are compositional marks that may
+            # legitimately frame a region, so only the flat fills are furniture.
+            return str(layer.get("kind") or "rule").lower() in {"rule", "block"}
+        return False
 
     @classmethod
     def _dedicated_key(

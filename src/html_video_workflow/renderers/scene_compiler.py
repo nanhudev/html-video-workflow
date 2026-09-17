@@ -28,11 +28,27 @@ from .layout import LayoutEngine, LayoutResult
 from .motion import MotionEngine, TimingPlan
 from .typography import get_profile
 
+#: Layer types whose box is *content*, i.e. something a viewer would notice being
+#: printed over. A `shape` is furniture — a hairline rule, a tinted block behind a
+#: quote — and two of those sharing a band is a composition, not a collision.
+#: `background` is excluded outright: it is behind everything by contract.
+_PAINTING_KINDS = frozenset({"text", "image", "video", "svg", "chart", "html"})
+
+
+def _paints_content(layer: dict[str, Any]) -> bool:
+    """Whether a shared position would be a defect rather than a design."""
+    kind = str(layer.get("type") or "text").lower()
+    if kind == "shape" and str(layer.get("kind") or "").lower() in {"block", "rule"}:
+        return False
+    role = str(layer.get("role") or "").lower()
+    if role == "background":
+        return False
+    return kind in _PAINTING_KINDS
+
 
 @dataclass
 class CompiledScene:
     """Everything one compiled scene produced, including the critique."""
-
     html: str
     layout: LayoutResult
     timing: TimingPlan
@@ -325,6 +341,18 @@ class SceneCompiler:
             layout=str(layout.name),
             safe_area_breaches=breaches,
             longest_line=longest,
+            # Everything that paints its own content is checked, media included:
+            # a full-bleed image *is* meant to sit under a caption, but a body
+            # paragraph sharing a band with a diagram is not, and the engine
+            # cannot tell the two apart from the coordinates alone. The decor
+            # shapes are the exception — a hairline rule behind a headline is
+            # deliberate furniture, and flagging it would train people to ignore
+            # the check.
+            slot_positions=[
+                (key, slot.x, slot.y)
+                for layer, slot, key in placed
+                if _paints_content(layer) and str(layer.get("content") or "").strip()
+            ],
             largest_is_large_text=bool(type_sizes) and max(type_sizes) >= 24,
             background_has_motion=any(
                 str(i.name) == "parallax" for i in timing.instances

@@ -108,9 +108,32 @@ README = """HTML Video Workflow — 本地视频生成工作台
 
 
 def run(command: list[str], cwd: Path | None = None) -> None:
-    print(f"$ {' '.join(command)}")
-    subprocess.run(command, cwd=str(cwd or ROOT), check=True,
-                   shell=os.name == "nt")
+    """Run a build step, and surface its output.
+
+    No ``shell=True``. On Windows a list is joined into a command line, and the
+    interpreter path is not quoted, so any space in it truncates the command:
+    GitHub's runner uses ``C:\\hostedtoolcache\\windows\\Python\\3.11.9\\x64\\
+    python.exe``, which has none, but the failure this caused showed up as
+    ``Process completed with exit code 1`` with no message at all — because the
+    child was ``cmd.exe`` complaining in its own OEM codepage, which the runner
+    rendered as ``????``. A build step that cannot say why it failed is a build
+    step nobody can fix. Running the executable directly removes the shell, the
+    quoting question, and the swallowed message in one move.
+    """
+    printable = " ".join(f'"{part}"' if " " in str(part) else str(part)
+                         for part in command)
+    print(f"$ {printable}", flush=True)
+    result = subprocess.run(command, cwd=str(cwd or ROOT), check=False,
+                            capture_output=True, text=True, errors="replace")
+    if result.stdout:
+        print(result.stdout, end="", flush=True)
+    if result.stderr:
+        # stderr is where PyInstaller puts its real reason. It used to be
+        # discarded entirely.
+        print(result.stderr, end="", flush=True)
+    if result.returncode != 0:
+        raise SystemExit(
+            f"命令失败（退出码 {result.returncode}）：{printable}")
 
 
 def version() -> str:
@@ -183,9 +206,14 @@ def build_exe(out_dir: Path) -> Path:
 
     work = out_dir / "pyi-work"
     spec = ROOT / "packaging" / "html-video.spec"
+    # `--log-level INFO`, not WARN. WARN is the level that hides the reason a
+    # build stopped: the CI run that failed here printed PyInstaller's version
+    # banner and then nothing before exiting 1, so there was no way to tell a
+    # missing hidden import from a bad spec path. The extra lines are cheap; a
+    # silent failure is not.
     run([sys.executable, "-m", "PyInstaller", str(spec), "--noconfirm", "--clean",
          "--distpath", str(out_dir / "pyi"), "--workpath", str(work),
-         "--log-level", "WARN"])
+         "--log-level", "INFO"])
     built = out_dir / "pyi" / "html-video"
     if not (built / "html-video.exe").exists():
         raise SystemExit(f"打包没有产出可执行文件：{built}")

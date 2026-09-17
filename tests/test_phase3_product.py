@@ -387,6 +387,134 @@ def test_narration_speed_matches_the_audio_estimator() -> None:
     assert abs(spoken - estimate) < max(2.0, estimate * 0.35)
 
 
+def test_the_estimator_agrees_with_measured_sapi_timing() -> None:
+    """Agreement between two stages means nothing if both hold a wrong number.
+
+    For a long time the planner and the audio stage both assumed 5.2 CJK
+    chars/sec — mutual consistency, and a ~55% error against the engine that
+    actually speaks. A 20-second request came back at ~31 seconds. So this pins
+    the constant to *measured* SAPI timings taken on the machine this project
+    ships against (``scripts/measure_speech_rate.py``), with the individual
+    sentence timings recorded so the expectation is checkable rather than
+    asserted from memory.
+    """
+    from html_video_workflow.utils.audio import (
+        SAPI_CJK_CHARS_PER_SECOND,
+        SAPI_LATIN_CHARS_PER_SECOND,
+        estimate_speech_seconds,
+    )
+
+    # (text, seconds actually spoken by Windows SAPI zh-CN on the reference box)
+    measured = [
+        ("你的数据，正在离开你的电脑。", 3.69),
+        ("每一次提问，都被打包送进某个机房的服务器。你删掉对话，但副本通常还在。", 9.33),
+        ("本地 AI 换了一条路：模型跑在你自己的机器上，问题不出门，答案直接返回。", 8.91),
+        ("代价是你要先下载模型。你换来的，是数据不出本机、断网也能用、没有按月计费。", 10.15),
+        ("所以问题不是哪个更强，而是哪些事，你愿意交给别人。", 6.68),
+    ]
+    for text, actual in measured:
+        estimate = estimate_speech_seconds(text)
+        error = abs(estimate - actual) / actual
+        assert error < 0.15, (
+            f"{text[:18]}…: estimator says {estimate:.2f}s, SAPI took {actual:.2f}s "
+            f"({error:.0%} off)"
+        )
+
+
+def test_the_estimator_does_not_drift_back_to_a_guess() -> None:
+    """A plausible-looking constant is how this broke the first time.
+
+    Both rates must stay in the neighbourhood of what the engine does. The
+    bounds are wide on purpose — speech rate varies with voice and punctuation —
+    but they rule out the specific regression of someone restoring 5.2 because it
+    looked tidy next to 2.6.
+    """
+    from html_video_workflow.utils.audio import (
+        SAPI_CJK_CHARS_PER_SECOND,
+        SAPI_LATIN_CHARS_PER_SECOND,
+    )
+
+    assert 2.8 <= SAPI_CJK_CHARS_PER_SECOND <= 4.2, SAPI_CJK_CHARS_PER_SECOND
+    assert 8.0 <= SAPI_LATIN_CHARS_PER_SECOND <= 13.0, SAPI_LATIN_CHARS_PER_SECOND
+
+
+def test_the_planner_and_the_composer_pad_a_scene_by_the_same_amount() -> None:
+    """Two paddings for one gap is how a 28s request shipped as 20.3s.
+
+    The planner budgets ``speech + pad`` per scene and the composer pads each
+    rendered segment, and for a while those were two different numbers written
+    in two different files. Nothing crashed: the video was simply shorter than
+    the duration the user asked for, by 0.55s for every scene. The only durable
+    defence is one constant that both stages read.
+    """
+    import inspect
+
+    from html_video_workflow.pipeline import stages
+    from html_video_workflow.planning import script as script_module
+    from html_video_workflow.utils.audio import SCENE_TAIL_PAD_SEC
+
+    assert script_module._BEAT_PADDING_SEC == SCENE_TAIL_PAD_SEC, (
+        "the planner pads by "
+        f"{script_module._BEAT_PADDING_SEC}s while the composer uses "
+        f"{SCENE_TAIL_PAD_SEC}s")
+    # The composer must read the constant, not a literal that happens to match
+    # today. A shared value that is copy-pasted is not shared.
+    source = inspect.getsource(stages.stage_compose)
+    assert "SCENE_TAIL_PAD_SEC" in source, (
+        "stage_compose no longer references SCENE_TAIL_PAD_SEC — the padding "
+        "has been inlined and will drift again")
+
+
+def test_a_planned_scene_that_the_audio_cannot_fill_keeps_its_floor() -> None:
+    """The render must honour the plan's floor, not just the audio it got.
+
+    A scene under ~3s is a flash, so the planner never plans one. The composer
+    used to size each segment purely from the WAV, which meant a scene planned
+    at the 3s floor with a 1.8s voice rendered at 2.15s — the render quietly
+    contradicting its own plan, and the total drifting below the request.
+    """
+    from html_video_workflow.pipeline.stages import stage_compose  # noqa: F401
+    import inspect
+
+    source = inspect.getsource(stage_compose)
+    assert "duration_hint_sec" in source, (
+        "stage_compose sizes segments from the audio alone; scenes planned at "
+        "the minimum length will render shorter than planned")
+    assert "max(" in source, (
+        "stage_compose must take the longer of the padded audio and the "
+        "planned hint")
+
+
+def test_no_template_paces_faster_than_the_engine_can_speak() -> None:
+    """A template may read faster than another, but not faster than the voice.
+
+    Every manifest carries its own ``chars_per_sec`` pacing hint, and all seven
+    used to claim 5.0–6.0 — figures the engine cannot reach. A hint above the
+    measured rate does not make the speech quicker; it only makes the duration
+    estimate wrong again, template by template, which is harder to notice than a
+    single bad constant.
+    """
+    from html_video_workflow.templates.registry import get_registry
+    from html_video_workflow.utils.audio import SAPI_CJK_CHARS_PER_SECOND
+
+    registry = get_registry()
+    checked = 0
+    for template in registry.templates():
+        narration = getattr(template, "narration", None) or {}
+        rate = narration.get("chars_per_sec") if isinstance(narration, dict) else None
+        if rate is None:
+            continue
+        checked += 1
+        # 15% headroom: a "fast" template is allowed to sit above the neutral
+        # baseline, but not so far above that the planner budgets for a voice
+        # nobody has.
+        assert float(rate) <= SAPI_CJK_CHARS_PER_SECOND * 1.2, (
+            f"{template.id} claims {rate} chars/s; the engine measures "
+            f"{SAPI_CJK_CHARS_PER_SECOND}"
+        )
+    assert checked, "no template carried a pacing hint — the check went stale"
+
+
 # -------------------------------------------------------------- storyboard
 def test_storyboard_produces_valid_ir_v2() -> None:
     registry = get_registry()
@@ -986,6 +1114,94 @@ def test_file_kind_still_raises_when_the_file_is_absent(tmp_path: Path) -> None:
 
 
 # ------------------------------------------- regressions: duration is honest
+def test_a_marginal_overshoot_does_not_shred_a_sentence() -> None:
+    """Trimming must be worth it, or it must not happen.
+
+    Nine tenths of a second over budget used to cost two sentences their last
+    four characters — "……去往别人的服务器。" became "……去往别人的" in the narration,
+    in the headline and in the burned-in subtitle. A viewer sees a cut-off word
+    immediately; nobody can see a 3% timing difference.
+    """
+    from html_video_workflow.utils.audio import (
+        SCENE_TAIL_PAD_SEC,
+        estimate_speech_seconds,
+    )
+    from html_video_workflow.planning import script as script_module
+
+    paragraphs = [
+        "你的每一次提问，都在离开这台电脑，去往别人的服务器。",
+        "本地模型不同：问题不出门，拔掉网线也照样工作。",
+        "代价是几十 GB 的下载，和比云端慢一点的答案。",
+        "真正要选的不是谁更强，而是哪些问题你愿意交出去。",
+    ]
+    # A target just below the natural length: the surplus is under a second.
+    natural = (sum(estimate_speech_seconds(p) for p in paragraphs)
+               + SCENE_TAIL_PAD_SEC * len(paragraphs))
+    target = natural - 0.4
+    manifest = get_registry().get("editorial_argument")
+    built = ScriptPlanner().build(
+        "本地 AI", manifest=manifest, language="zh-CN",
+        script_text="\n\n".join(paragraphs), target_duration_sec=target)
+
+    assert built.beats
+    for original, beat in zip(paragraphs, built.beats):
+        assert beat.narration == original, (
+            f"a {0.4:.1f}s overshoot cost the narration {len(original) - len(beat.narration)} "
+            f"characters: {beat.narration!r}")
+    # The guard is real, not vacuous: ask for half the length and the words must
+    # give way, or the assertion above would hold for any implementation.
+    squeeze = ScriptPlanner().build(
+        "本地 AI", manifest=manifest, language="zh-CN",
+        script_text="\n\n".join(paragraphs), target_duration_sec=natural / 2)
+    assert any(len(b.narration) < len(p)
+               for b, p in zip(squeeze.beats, paragraphs)), (
+        "even a 50% target left the text untouched; the trim no longer works")
+
+
+def test_no_on_screen_text_ends_mid_word() -> None:
+    """Headlines and body copy must break at a clause, never at a character.
+
+    Both helpers used a bare slice (`text[:28]`, `text[:limit-1] + "…"`), so the
+    largest text on screen regularly ended inside a word.
+    """
+    from html_video_workflow.planning.script import _headline_from_text
+    from html_video_workflow.planning.storyboard import _on_screen_body
+
+    long_cjk = "你的每一次提问，都在离开这台电脑，去往别人的服务器。"
+    headline = _headline_from_text(long_cjk, 1)
+    body = _on_screen_body(long_cjk)
+
+    assert long_cjk.startswith(headline), headline
+    assert long_cjk.startswith(body), body
+    # 26 characters is the whole sentence, so nothing was cut at all — the
+    # preferred outcome, and the one the old `[:28]` slice could not produce
+    # because it counted the sentence terminator into its budget.
+    assert headline == long_cjk.rstrip("。"), headline
+    # Ellipsis is reserved for the genuinely unbreakable case.
+    assert not headline.endswith("…"), headline
+    assert not body.endswith("…"), body
+
+    # A sentence that genuinely exceeds the budget must still break on a clause.
+    wide = "这一句话特别长，长到必须被切开，所以它应该停在逗号而不是任意一个字上。"
+    assert len(wide) > 28
+    cut = _headline_from_text(wide, 1)
+    assert wide.startswith(cut), cut
+    # The clause ending is dropped, so the headline must be a strict prefix of
+    # the original *followed by* a pivot — not a prefix followed by a glyph that
+    # happens to sit mid-word.
+    assert wide[len(cut)] in "，、：,:—-", (
+        f"headline broke mid-clause: {cut!r} (next char {wide[len(cut)]!r})")
+
+
+def test_an_unbreakable_run_still_gets_a_visible_marker() -> None:
+    """One long CJK run has no boundary to snap to; say so rather than lie."""
+    from html_video_workflow.planning.script import _headline_from_text
+
+    run = "超" * 60
+    headline = _headline_from_text(run, 1)
+    assert len(headline) <= 29, headline
+    assert headline.endswith("…"), headline
+
 def _script_total(topic: str, template: str, target: float | None) -> tuple[float, int]:
     manifest = get_registry().get(template)
     script = ScriptPlanner().build(topic, manifest=manifest,
@@ -1028,13 +1244,23 @@ def test_a_target_the_material_cannot_fill_is_reported() -> None:
     Trimming fixes "too long". "Too short" cannot be fixed without padding the
     video with dead air, so the honest move is to say so rather than return a
     38-second video for a 45-second request and call it done.
+
+    The shortfall has to be *real*, which is why this passes two short
+    paragraphs and asks for a minute. It used to rely on the rule writer
+    under-producing; once trimming started landing on target, that input stopped
+    being short and the check silently stopped testing anything.
     """
     manifest = get_registry().get("knowledge_primer")
-    script = ScriptPlanner().build("向量数据库", manifest=manifest,
-                                   target_duration_sec=45)
-    assert script.total_duration < 45.0
-    assert any("requested 45s" in warning for warning in script.warnings), (
+    script = ScriptPlanner().build(
+        "向量数据库", manifest=manifest, target_duration_sec=60,
+        script_text="向量数据库把文本嵌入成高维向量，于是检索不再依赖关键词。\n\n"
+                    "它并不是要取代关系型数据库，两者解决的是不同形状的问题。")
+    assert script.total_duration < 60.0
+    assert any("requested 60s" in warning for warning in script.warnings), (
         f"expected a shortfall warning, got {script.warnings}")
+    # And the words must survive: a shortfall is a fact about the material,
+    # never an excuse to shorten what the author wrote.
+    assert "关系型数据库" in "".join(beat.narration for beat in script.beats)
 
 
 def test_shorter_target_trims_words_not_the_clock() -> None:
@@ -1072,14 +1298,17 @@ def test_planner_uses_the_canonical_speech_estimator(language: str,
     speech seconds makes English scenes ~14% long, because the canonical
     estimator ignores whitespace.
     """
-    from html_video_workflow.utils.audio import estimate_speech_seconds
+    from html_video_workflow.utils.audio import (
+        SCENE_TAIL_PAD_SEC,
+        estimate_speech_seconds,
+    )
 
     manifest = get_registry().get("knowledge_primer")
     script = ScriptPlanner().build("t", manifest=manifest, language=language,
                                    script_text=paragraph, target_duration_sec=30)
     assert script.beats
     for beat in script.beats:
-        expected = estimate_speech_seconds(beat.narration) + 0.9
+        expected = estimate_speech_seconds(beat.narration) + SCENE_TAIL_PAD_SEC
         # Compared against the documented timing formula, floor included: the
         # 3s minimum scene length is a deliberate rule, not a rounding artefact.
         assert beat.duration_sec == round(min(12.0, max(3.0, expected)), 2), (

@@ -174,6 +174,14 @@ class FFmpegService:
             "fade=t=in:st=0:d=0.25",
             f"fade=t=out:st={max(0.1, duration - 0.3):.3f}:d=0.3",
         ]
+        # `-shortest` is deliberately absent. With a `-loop 1` still and a
+        # finite `-t`, the video stream is already bounded by `-t`; adding
+        # `-shortest` made the *audio* the authority instead, so every segment
+        # came out exactly as long as its narration. That silently discarded
+        # both the tail pad and the planner's minimum scene length, which is
+        # how a 28s request kept landing near 20s even after the planner was
+        # budgeting correctly. The caller guarantees `-t` >= the audio length,
+        # so the only thing `-shortest` was doing was erasing that padding.
         cmd = [
             self.ffmpeg, "-y", "-v", "error",
             "-loop", "1", "-i", str(image),
@@ -183,7 +191,6 @@ class FFmpegService:
             "-c:v", "libx264", "-preset", "fast", "-crf", str(crf),
             "-pix_fmt", "yuv420p",
             "-c:a", "aac", "-b:a", f"{audio_bitrate_kbps}k",
-            "-shortest",
             str(output),
         ]
         self._run(cmd)

@@ -1,0 +1,22 @@
+{
+  "title": "2025 年全球电动车销量到底涨了多少",
+  "narration_source": "user",
+  "note": "Rendered with no LLM key configured, so the narration came from the built-in rule writer — not from a model. Voice, render, subtitles and composition are real.",
+  "providers": {
+    "llm": "mock_llm",
+    "tts": "sapi",
+    "renderer": "advanced_html",
+    "subtitle": "srt"
+  },
+  "scenes": 4,
+  "requested_duration_sec": 30.0,
+  "actual_duration_sec": 28.17,
+  "deviation_pct": 6.1,
+  "render_seconds": 71.3,
+  "resolution": "1920x1080",
+  "fps": 30,
+  "verified_on": "2026-09-17",
+  "warnings": [
+    "forced template data_story does not fit: template data_story requires data, which this request does not have"
+  ]
+}

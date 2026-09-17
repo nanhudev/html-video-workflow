@@ -31,7 +31,7 @@
     "close"
   ],
   "narration": {
-    "chars_per_sec": 5.0,
+    "chars_per_sec": 3.22,
     "max_chars_per_scene": 150,
     "tone": "reflective"
   },

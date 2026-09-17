@@ -281,12 +281,18 @@ class ProsodyPlan(BaseModel):
     def text(self) -> str:
         return " ".join(segment.text for segment in self.segments)
 
-    def estimated_speech_ms(self, chars_per_second: float = 5.2) -> int:
-        """Speech time only, excluding pauses."""
-        from ...utils.audio import estimate_speech_seconds
+    def estimated_speech_ms(self, chars_per_second: float | None = None) -> int:
+        """Speech time only, excluding pauses.
 
+        ``chars_per_second`` defaults to the measured engine rate rather than a
+        literal, so a caller that does not override it gets the same answer the
+        planner does. Passing a number here is for probing a *different* engine.
+        """
+        from ...utils.audio import SAPI_CJK_CHARS_PER_SECOND, estimate_speech_seconds
+
+        rate = chars_per_second or SAPI_CJK_CHARS_PER_SECOND
         total = sum(
-            estimate_speech_seconds(segment.text, chars_per_second) / max(0.25, segment.pace)
+            estimate_speech_seconds(segment.text, rate) / max(0.25, segment.pace)
             for segment in self.segments
         )
         return int(total * 1000)

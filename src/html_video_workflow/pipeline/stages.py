@@ -28,7 +28,11 @@ from ..quality.engine import QualityEngine
 from ..runtime.cache import get as cache_get, put as cache_put
 from ..runtime.events import emit
 from ..runtime.models import Artifact, Job, new_step
-from ..utils.audio import estimate_speech_seconds, wav_duration
+from ..utils.audio import (
+    SCENE_TAIL_PAD_SEC,
+    estimate_speech_seconds,
+    wav_duration,
+)
 from ..utils.hashing import hash_file
 from ..utils.logging import get_logger
 from .prosody import ProsodyPlanner, ProsodySettings
@@ -403,6 +407,11 @@ def stage_caption(ctx: StageContext, audios: list[Path]) -> Path | None:
             scene.duration_hint_sec or 4.0
         )
         duration = float(duration or 4.0) + (scene.narration.pause_after_ms or 0) / 1000.0
+        # Must match the segment length the composer will produce, pad and
+        # floor included, or the captions drift away from the picture: the last
+        # cue of a short scene would end after the scene itself has cut.
+        duration = max(duration + SCENE_TAIL_PAD_SEC,
+                       float(scene.duration_hint_sec or 0.0))
         text = scene.narration.text or scene.title or ""
         if text:
             cues.append({"start": clock, "end": clock + duration, "text": text})
@@ -445,6 +454,16 @@ def stage_compose(ctx: StageContext, images: list[Path], audios: list[Path],
             continue
         segment = ctx.work_path / "segments" / f"segment-{index:03d}.mp4"
         duration = wav_duration(audio) or 4.0
+        # The same pad the planner budgeted, or the finished video is shorter
+        # than the duration the user asked for.
+        spoken = duration + SCENE_TAIL_PAD_SEC
+        # ...and the planner's floor still applies when the audio is short. A
+        # scene under ~3s is a flash, and the planner already refused to plan
+        # one; honouring only the audio here meant a 3.0s scene with a 1.8s
+        # voice rendered at 2.15s, so the render contradicted its own plan.
+        hint = 0.0
+        if index - 1 < len(ctx.project.scenes):
+            hint = float(ctx.project.scenes[index - 1].duration_hint_sec or 0.0)
         ffmpeg.image_with_audio(
             image,
             audio,
@@ -452,7 +471,7 @@ def stage_compose(ctx: StageContext, images: list[Path], audios: list[Path],
             width=output_spec.width,
             height=output_spec.height,
             fps=output_spec.fps,
-            duration=duration + 0.35,
+            duration=max(spoken, hint),
             audio_bitrate_kbps=ctx.settings.render.audio_bitrate_kbps,
         )
         segments.append(segment)

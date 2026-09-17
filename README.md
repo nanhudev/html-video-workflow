@@ -1,234 +1,306 @@
-# HTML Video Workflow · 本地视频生成工作台
+# HTML Video Workflow
 
-**输入一个选题，输出一条带配音、字幕和画面的 MP4。整个过程跑在你自己的电脑上。**
+**One prompt in. A finished video out.**
 
-不用写代码，不用注册账号，不用把选题和素材上传到别人的服务器。
+Type an idea. Get back an MP4 with narration, on-screen text, subtitles and a
+soundtrack-free but properly paced edit — produced entirely on your own machine.
 
-[**⬇ 下载 Windows 版**](../../releases/latest) ·
-[五分钟上手](QUICKSTART.md) ·
-[遇到问题](#遇到问题怎么办) ·
-[English](#english)
+[![CI](https://github.com/nanhudev/html-video-workflow/actions/workflows/ci.yml/badge.svg)](https://github.com/nanhudev/html-video-workflow/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/nanhudev/html-video-workflow?include_prereleases&sort=semver)](https://github.com/nanhudev/html-video-workflow/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
----
-
-## 下载就能用
-
-### ① 下载
-
-打开 [Releases](../../releases/latest) 页面，下载 `html-video-windows-x64-*.zip`（约 185 MB —— 里面打包了完整的 FFmpeg，所以偏大，但换来的是不用再装任何东西）。
-
-### ② 解压
-
-解压到任意文件夹，例如 `D:\html-video`。
-
-> 建议放在 **D 盘或其他数据盘**。一条一分钟的视频，临时文件加成品大约需要 1–2 GB；
-> 放在系统盘会让 C 盘越来越紧张。
-
-### ③ 双击 `html-video.exe`
-
-- 会弹出一个黑色窗口 —— 那是本地服务，**不要关掉它**（关掉界面就打不开了）
-- 等几秒钟，浏览器会自动打开
-- 如果没自动打开，手动访问 <http://127.0.0.1:8787>
-
-不需要装 Python，不需要装 Node.js，FFmpeg 已经打包在 `bin` 文件夹里。
-
-> **第一次运行会被 Windows 拦一下。** 出现「Windows 已保护你的电脑」是正常的 ——
-> 这个版本没有购买代码签名证书。点「更多信息」→「仍要运行」即可。
+[**⬇ Download for Windows**](../../releases/latest) ·
+[Quick start](QUICKSTART.md) ·
+[中文说明](#中文说明) ·
+[Examples](docs/examples/) ·
+[Status](docs/STATUS.md)
 
 ---
 
-## 然后跟着向导走七步
+## Demo
 
-界面左侧只有两个入口：**「开始创作」**和**「我的作品」**。创作是一条单向的向导：
+![A 28-second video produced by this project: four scenes with Chinese narration, on-screen text and burned-in subtitles](docs/assets/demo.gif)
 
-| 步骤 | 你在做什么 | 说明 |
-| :--- | :--- | :--- |
-| **① 环境自检** | 什么都不用做 | 程序**真的去探测**这台电脑：能不能合成视频、有没有中文配音、磁盘够不够。有问题的项会直接告诉你**怎么修**，例如"安装 FFmpeg 后重启本程序" |
-| **② 文案引擎** | 决定谁写旁白 | 填一个 API Key 让大模型写文案，或者选择离线（**不填也能用**，见下一节）。填了之后可以点「测试」——它会真的调用一次，而不是只告诉你"已保存" |
-| **③ 选题** | 输入你想讲什么 | 一段话就行。顺手选时长（30/60/90/120 秒）、画面比例（横屏 16:9 / 竖屏 9:16 / 方形 1:1）和语言 |
-| **④ 写作风格** | 用哪种方式讲 | 八种写法，每种都写明了受众和口吻：科普解说、产品测评、教程步骤、数据解读、观点评论、故事化叙事、新闻速览、项目推介。**你手改过的字段不会被覆盖** |
-| **⑤ 模板与配色** | 长什么样 | 版式结构（怎么组织论点）和配色皮肤是两个独立的选项，可以自由组合 |
-| **⑥ 生成** | 点「开始生成」 | 实时进度，随时可以取消。这一步包含写作、配音、逐场景截图、合成和质检 |
-| **⑦ 完成** | 拿走视频 | 页面上直接播放 · **打开文件位置**（在资源管理器里选中文件）· 复制完整路径 |
-
-生成过的视频都留在左侧 **「我的作品」** 里，带缩略图，随时回看。
+*28 seconds, 1920×1080, produced from the prompt `为什么本地 AI 很重要`. Real
+Windows SAPI voice, real HTML/CSS rendering, real subtitles — no stock footage
+and no external assets. Full file: [`docs/assets/demo.mp4`](docs/assets/demo.mp4),
+and the numbers behind it in
+[`docs/examples/01_explainer/result.json`](docs/examples/01_explainer/result.json).*
 
 ---
 
-## 要不要填 API Key？
+## What it does
 
-**不填也能用。**
+Give it a topic. It writes a script, breaks it into scenes, lays each scene out
+as HTML, screenshots it, synthesises the voice, times the subtitles against the
+real audio, and muxes the whole thing into an MP4.
 
-| | 离线（不填 Key） | 填了 API Key |
-| :--- | :--- | :--- |
-| 旁白文案 | 由内置规则模板生成，结构完整但比较程式化 | 由你配置的大模型按选定的写作风格撰写 |
-| 画面、配音、字幕 | **都是真实的**，和联网时完全一样 | 同左 |
-| 需要联网 | 否 | 只在写文案时调用一次 |
+- **Runs locally.** No account, no upload, no per-video cost. Your topic and your
+  documents stay on your disk.
+- **Returns a real file**, not a storyboard or a draft. `create_video()` hands you
+  a path to an H.264 MP4 that plays in anything.
+- **Explains itself.** Every result carries `reasons`, `warnings` and `fallbacks`.
+  A degradation is always recorded and never silent.
+- **Works without a key.** With no AI model configured, the narration comes from
+  built-in writing templates — and the result says so, instead of implying a
+  model wrote it. See [Offline vs. AI writing](#offline-vs-ai-writing).
+- **Nothing installed.** The Windows download bundles Python's runtime, the
+  renderer's browser dependency and FFmpeg. Double-click and go.
 
-程序不会替你假装：结果页会明确标出这一次的文案是**规则生成**还是**模型生成**。
-
-API Key 只保存在本机的配置文件里（`数据目录\.env`），不会上传到任何第三方服务器。
-支持任何 OpenAI 兼容接口 —— 界面里预置了 DeepSeek、OpenAI、Moonshot、硅基流动的常用地址。
-
----
-
-## 出片在哪？
-
-- **成品视频**：数据目录下的 `outputs` 文件夹
-- **数据目录**：程序优先选择 D/E 盘，形如 `D:\html-video-workflow`；没有第二个盘时用 `%USERPROFILE%\.html-video-workflow`
-- 具体路径就写在启动时那个黑色窗口里，界面上点「打开文件位置」也能直接定位
-
-想换位置：设置环境变量 `HVW_HOME` 指向你想要的目录，然后重启程序。
+> **Why is it called "HTML"?** HTML is the *rendering* engine, not the workflow.
+> Scenes are composed as HTML and CSS and screenshotted, which is what makes the
+> typography behave like a web page instead of like a slideshow. You never write
+> any HTML, and you never see any.
 
 ---
 
-## 遇到问题怎么办
+## Quick start
 
-先看界面上的 **「环境自检」** —— 它列出的每一项都带了修复方法。
+**Windows, no toolchain:**
 
-| 现象 | 原因与处理 |
-| :--- | :--- |
-| 首次运行弹出「Windows 已保护你的电脑」 | 没有代码签名证书，属正常。点「更多信息」→「仍要运行」 |
-| 双击后浏览器没反应 | 看黑色窗口里打印的「界面」地址，手动在浏览器打开；确认窗口没有被关掉 |
-| 提示端口被占用 | 黑色窗口里会报错。换端口启动：`html-video.exe --port 8899` |
-| 视频没有声音 | 系统缺少中文语音包。设置 → 时间和语言 → 语言和区域 → 中文(简体) → 语言选项 → 语音 → 添加 |
-| 生成很慢 | 渲染要逐场景调用浏览器截图，属正常。可在「环境自检」里把运行档位改成 `fast` |
-| 提示找不到 FFmpeg | 用源码运行时才会出现。发布版自带；源码运行请自行安装 FFmpeg 并加入 PATH |
-| 想确认机器能不能用 | 命令行运行 `html-video.exe doctor`，得到一份诚实的体检报告 |
+1. Download `html-video-windows-x64-*.zip` from
+   [Releases](../../releases/latest) (~185 MB — FFmpeg is inside).
+2. Unzip anywhere. Prefer a data drive: a one-minute video needs 1–2 GB of
+   scratch space.
+3. Double-click **`html-video.exe`**. A console window opens (leave it running)
+   and your browser opens at <http://127.0.0.1:8787>.
+4. Follow the seven-step wizard. Step 6 produces the video.
 
----
+> First launch will show "Windows protected your PC" — the build is not
+> code-signed. **More info → Run anyway.** Documented, not hidden.
 
-## 其他用法
-
-发布版里的 `html-video.exe` 本身就是完整的命令行工具。
-从源码安装后，同一个 `html-video` 命令还提供 Python SDK、REST API 和 MCP server。
+**From source:**
 
 ```bash
-html-video                                  # 等同于双击：启动界面并打开浏览器
-html-video doctor                           # 检查这台机器，逐项给出能不能用
-html-video generate "为什么本地 AI 很重要"    # 不开界面，直接出片
-html-video presets                          # 列出八种写作风格
+python scripts/dev.py setup     # venv + dependencies
+html-video doctor               # what this machine can actually do
+html-video                      # open the studio in a browser
+html-video generate "为什么本地 AI 很重要"
+```
+
+---
+
+## Desktop app
+
+The wizard is the intended path for anyone who does not want a terminal.
+
+| Step | What you do | What it actually does |
+| :--- | :--- | :--- |
+| 1. Environment | nothing | Probes the machine for real: rendering, voice, disk. Each failure comes with the fix. |
+| 2. Voice engine / AI writing | choose | Use the built-in writing, or connect an AI model. Connecting shows a key and a model; the base URL lives under Advanced. |
+| 3. Topic | type an idea | Plus duration, aspect ratio and language. |
+| 4. Writing style | pick a tone | Eight presets, each naming its audience. Hand-edited fields are never overwritten. |
+| 5. Look | pick a structure and a skin | Template (how the argument is organised) and style (colour and type) are independent. |
+| 6. Generate | one click | Progress is live and cancellable. |
+| 7. Done | take the file | Playback, **Open file location**, copy path, and a note on where the words came from. |
+
+**My Videos** lists what you have made, newest first, with thumbnails.
+
+Developer surfaces — provider ids, hardware routing, renderer choice, the REST
+API — are behind **Advanced**. They are not shown to someone who just wants a
+video.
+
+---
+
+## Offline vs. AI writing
+
+These are different products and the interface says which one you are getting.
+
+| | No AI model configured | AI model configured |
+| :--- | :--- | :--- |
+| **Narration** | Built-in writing templates. Complete and structured, but formulaic. | Written by the model you configured, in the writing style you chose. |
+| **Scenes, voice, subtitles, render** | **Real.** Identical to the connected path. | **Real.** |
+| **Network** | Not used. | One call, to write the script. |
+| **Reported as** | `narration_source: "rule"` | `narration_source: "llm"` |
+
+> Works without an API key. Without an AI model configured, HTML Video Workflow
+> uses built-in writing templates instead of pretending that a model wrote the
+> narration.
+
+Keys are stored in `数据目录\.env` on your machine and sent only to the endpoint
+you configure. Any OpenAI-compatible API works.
+
+## Voice
+
+The verified configuration is the **Windows SAPI Chinese voice that ships with
+the operating system**. `doctor` lists exactly which voices are installed, and
+the pipeline measures the actual speaking rate of the voice it routes to
+(3.35 CJK characters per second on the verification machine) rather than
+assuming one. Re-measure on your own machine with
+`python scripts/measure_speech_rate.py`.
+
+Neural TTS adapters exist and route correctly, but **no neural voice is installed
+on the machine this was verified against**, so that path is marked experimental
+in [`docs/STATUS.md`](docs/STATUS.md) rather than claimed as working.
+
+---
+
+## CLI, Python and the REST API
+
+```bash
+html-video                                  # studio in the browser
+html-video doctor                           # honest per-capability report
+html-video generate "为什么本地 AI 很重要"    # straight to MP4
+html-video presets                          # the eight writing styles
 html-video generate "选题" --writing-preset how_to --duration 60
-html-video generate "选题" --out D:\videos   # 顺便把成品拷到指定目录
+html-video generate "选题" --out D:\videos   # also copy the result there
 ```
 
 ```python
 from html_video_workflow import create_video
 
 result = create_video("为什么本地 AI 很重要", writing_preset="popular_science")
-print(result.video_path, result.narration_source)   # 出片路径，以及文案是规则还是模型写的
+print(result.video_path, result.narration_source)
 ```
 
 ```http
 POST /v1/videos   {"topic": "为什么本地 AI 很重要", "writing_preset": "popular_science"}
 ```
 
-五个入口（CLI、Python SDK、REST API、MCP server、图形界面）**共用同一个实现**，
-都构造同一个 `CreateVideoRequest` 并调用 `VideoRuntime.create_video()`。
-所以不存在"某个能力只有一个入口有"的情况。完整契约见 [`docs/API.md`](docs/API.md)。
+All entry points — CLI, Python SDK, REST API, MCP server and the desktop app —
+construct the same `CreateVideoRequest` and call the same
+`VideoRuntime.create_video()`. A capability cannot exist in one and be missing
+from another. Full contract: [`docs/API.md`](docs/API.md).
 
 ---
 
-## 它凭什么不一样
+## Templates and writing styles
 
-大多数自动出片的演示只给你一个文件，你没法追问：为什么用这个模板、为什么是 32 秒而不是你要的 20 秒。
-这个项目把每个决策都留在明面上：
+Three independent choices, deliberately kept apart:
 
-- **每个结果都带 `reasons`、`warnings`、`fallbacks`** —— 降级一定会被记录，绝不静默发生
-- **没有探测就没有"就绪"** —— `ProviderSpec` 只是声明，`probe()` 才是事实；能力只会被确认或降级，永远不会被假设
-- **画面与渲染器解耦** —— 中间表示（IR V2）里的图层只描述 `{类型, 角色, 内容, 版式, 动效}`，不出现任何渲染器或 CSS 类名
-- **环境自检是真的在跑探测**，不是打印一行"OK"
+| | What it decides | Options |
+| :--- | :--- | :--- |
+| **Template** | how the argument is structured | `editorial_argument`, `data_story`, `product_demo`, `knowledge_primer`, `mechanism_explainer`, `documentary_walkthrough`, `social_short` |
+| **Style** | colour, type and spacing | 6 style profiles |
+| **Writing preset** | who the script is for, and in what tone | `popular_science`, `product_review`, `how_to`, `data_story`, `opinion`, `story`, `news_brief`, `pitch` |
 
----
-
-## 运行要求
-
-- **发布版**：Windows 10/11 64 位 + 系统自带的 Edge 浏览器。中文配音需要系统中文语音包
-- **源码运行**：Python 3.11+、Node.js 20+（仅构建界面时需要）、FFmpeg、Chromium 内核浏览器
+Template ids and preset ids are separate namespaces — `data_story` appears in
+both on purpose, meaning "this structure" and "this tone" respectively.
 
 ---
 
-## 文档
+## How it works
 
-| 文档 | 内容 |
-| :--- | :--- |
-| [`QUICKSTART.md`](QUICKSTART.md) | 五分钟上手 |
-| [`CURRENT_STATUS.md`](CURRENT_STATUS.md) | 现在**验证可用**的有什么，不可用的有什么 |
-| [`ROADMAP.md`](ROADMAP.md) | 阶段规划，以及明确的"不做"清单 |
-| [`ARCHITECTURE.md`](ARCHITECTURE.md) | 分层、边界与设计规则 |
-| [`DECISIONS.md`](DECISIONS.md) | 决策记录（D-001 …）及理由 |
-| [`DEVELOPMENT.md`](DEVELOPMENT.md) | 环境搭建、运行、测试、约定、如何新增 Provider |
-| [`AGENT_HANDOFF.md`](AGENT_HANDOFF.md) | 新 Agent / 新贡献者的接手入口 |
-| [`VIDEO_IR_V2.md`](VIDEO_IR_V2.md) | IR V2 参考 |
-| [`PROVIDER_SPEC.md`](PROVIDER_SPEC.md) | 如何写一个 Provider |
-| [`HARDWARE_ROUTING.md`](HARDWARE_ROUTING.md) | 硬件探测与路由行为 |
-| [`docs/API.md`](docs/API.md) | REST 契约 |
-| [`SKILL.md`](SKILL.md) | 给 Agent 用的技能说明 |
+```
+topic ──▶ script ──▶ scenes ──▶ HTML ──▶ screenshots ──▶ voice ──▶ subtitles ──▶ MP4
+         (rules or            (layout    (Chromium)      (SAPI /    (timed to
+          a model)             engine)                   neural)    real audio)
+```
+
+Three properties are enforced by tests, because they are what keep the output
+retargetable and the promises honest:
+
+- **The intermediate representation never names a renderer.** A layer is
+  `{type, role, content, layout, motion}`. No `remotionComponent`, no `cssClass`.
+- **A claim is not a capability.** `ProviderSpec` declares; `probe()` checks.
+  A probe may confirm or downgrade, never upgrade. Nothing is reported available
+  without having been checked.
+- **Timing follows the words.** The planner budgets against the measured speech
+  rate, and the composer pads each segment by the same constant. A 28-second
+  request produced a 28.4-second video.
 
 ---
 
-## 开发
+## Honest limitations
+
+- **No LLM key was configured on the verification machine**, so the AI-writing
+  path is implemented and unit-tested but has not been run end to end against a
+  real model here. Every example in this repository therefore reports
+  `narration_source` as `"user"` or `"rule"` — never `"llm"`.
+- **The first-run experience on a clean VM is not verified.** The CLI path the
+  wizard calls is exercised, and the wizard has been driven over CDP, but
+  "double-click on a fresh Windows install" remains unproven until someone does
+  it. Treat it as unverified rather than assuming it works.
+- **Rendering is slow**: roughly 20–30 seconds per scene at 1920×1080, because
+  each scene is a real browser screenshot. Accepted, not optimised.
+- **9:16 vertical output is experimental** — it renders, but the type scale was
+  tuned for 16:9.
+- **No avatar, image-generation, video-generation, music or ASR providers.**
+  Absent rather than stubbed, so nothing silently degrades into one.
+- **Windows only** for the packaged download. The Python package runs elsewhere,
+  but the binaries and the SAPI voice path are Windows-specific.
+
+Full, current, evidence-linked list: [`docs/STATUS.md`](docs/STATUS.md).
+
+---
+
+## Developers
 
 ```bash
-python scripts/dev.py setup     # 创建虚拟环境并安装依赖
-python scripts/dev.py doctor    # 对当前机器给出诚实报告
-python scripts/dev.py test      # pytest + 界面类型检查
-python scripts/dev.py studio    # 构建并启动界面
+python scripts/dev.py setup     # create the venv and install
+python scripts/dev.py doctor    # report on this machine
+python scripts/dev.py test      # pytest + UI type check
+python scripts/dev.py studio    # build and serve the UI
 python scripts/dev.py render examples/minimal-ir-v2.json
 ```
 
-打包发布版（需要 PyInstaller）：
+Packaging the Windows download:
 
 ```bash
 python -m pip install pyinstaller
 python scripts/pack_release.py --ffmpeg-bin D:\tools\ffmpeg\bin
-# → dist/release/html-video-windows-x64-<版本>.zip
+# → dist/release/html-video-windows-x64-<version>.zip
 ```
 
-推一个 `v*` 标签会自动触发 [`.github/workflows/release.yml`](.github/workflows/release.yml)，
-在 CI 里构建并上传到 GitHub Release。
+Pushing a `v*` tag builds it in CI and attaches it to the GitHub Release.
 
-模型、缓存、任务产物这类大文件应该放在数据盘：用 `HVW_HOME` 指向目标位置
-（例如 `HVW_HOME=D:\html-video-workflow`）。程序会自动归一化 Windows、POSIX、
-Git Bash 三种写法，并拒绝相对路径。
+Keep models, caches and job artifacts on a data drive via `HVW_HOME`
+(for example `HVW_HOME=D:\html-video-workflow`). Windows, POSIX and Git Bash
+path forms are all normalised; relative paths are rejected.
 
-原有的旧流程（`scripts/workflow.py`、项目 JSON、十套 HTML/CSS 模板）没有被改动，
-仍然完整可用 —— 它的用途是修补已有项目，而不是制作新视频。
+The original project-JSON workflow (`scripts/workflow.py`) is untouched and still
+works — it exists to patch an existing project, not to create new videos.
 
-## License
+### MCP
 
-MIT
+`SKILL.md` describes the agent-facing surface, so an MCP client can call
+`create_video` with the same request object the CLI builds.
 
 ---
 
-## English
+## Contributing
 
-**Type a topic, get a narrated MP4 — entirely on your own machine.**
+Issues and pull requests are welcome. The most useful things to send:
 
-No code, no account, no upload. Download `html-video-windows-x64-*.zip` from
-[Releases](../../releases/latest), unzip it, and double-click `html-video.exe`.
-Your browser opens at <http://127.0.0.1:8787> and a seven-step wizard walks you
-through environment checks, narration engine, topic, writing style, template and
-colour, generation, and the finished file. Python, Node.js and FFmpeg are *not*
-required — FFmpeg ships inside the zip.
+- A reproducible failure from the packaged build, with `html-video doctor` output.
+- A topic where the narration or the layout comes out badly, with the MP4.
 
-**An API key is optional.** Without one the narration is written by built-in
-rules; the visuals, voice and subtitles are real either way, and the result page
-states which of the two produced the words. With one, any OpenAI-compatible
-endpoint works. The key is stored locally and never sent anywhere else.
+Please run `python scripts/dev.py test` before opening a PR. See
+[`docs/development/DEVELOPMENT.md`](docs/development/DEVELOPMENT.md) and
+[`docs/development/ARCHITECTURE.md`](docs/development/ARCHITECTURE.md).
 
-Every entry point — the CLI, the Python SDK, the REST API, the MCP server and
-the GUI — builds the same `CreateVideoRequest` and calls the same
-`VideoRuntime.create_video()`, so no capability exists in one and not the others.
+## Security
 
-What sets this apart is that nothing is hidden: every result carries `reasons`,
-`warnings` and `fallbacks`; a `ProviderSpec` is only a claim that a `probe()`
-confirms or downgrades; and the renderer-neutral IR V2 describes layers as
-`{type, role, content, layout, motion}` without ever naming a renderer or a CSS
-class.
+See [`SECURITY.md`](SECURITY.md). API keys are never written to logs, project
+files or job artifacts.
 
-Source builds additionally support `html-video doctor`,
-`html-video generate "topic"`, and a documented REST contract in
-[`docs/API.md`](docs/API.md). Full requirements: Python 3.11+, Node.js 20+ (for
-building the UI), FFmpeg, and a Chromium-based browser. See
-[`DEVELOPMENT.md`](DEVELOPMENT.md) and [`ARCHITECTURE.md`](ARCHITECTURE.md).
+## License
+
+MIT — see [LICENSE](LICENSE).
+
+---
+
+## 中文说明
+
+**输入一个选题，输出一条成片。**
+
+写下你想讲什么，几十秒后拿到一条带旁白、字幕和画面的 MP4 —— 全部跑在你自己的电脑上。
+
+[**⬇ 下载 Windows 版**](../../releases/latest)：解压后双击 `html-video.exe`，
+浏览器自动打开，跟着七步向导走完即可。**不需要安装 Python、Node 或 FFmpeg**，
+它们要么已打包，要么根本用不上。
+
+- **不填 API Key 也能用。** 不配置 AI 模型时，旁白由内置写作模板生成；
+  画面、配音、字幕完全是真实的，结果页会明确标出文案是**模板生成**还是**模型生成**。
+- **配音**使用系统自带的 Windows 中文语音（SAPI）。程序会实测所选语音的语速，
+  而不是假设一个数字。
+- **音频时长**按实测语速排布：请求 28 秒，实得 28.4 秒，且没有为凑时长删改文案。
+
+**为什么叫 HTML Video Workflow**：HTML 是**渲染引擎**，不是你的工作流。
+画面以 HTML/CSS 排版后截图，所以字体和留白像网页一样可控。你不需要写任何 HTML。
+
+| 文档 | 内容 |
+| :--- | :--- |
+| [`QUICKSTART.md`](QUICKSTART.md) | 五分钟上手 |
+| [`docs/STATUS.md`](docs/STATUS.md) | 唯一权威状态：现在稳定什么、实验什么、缺什么 |
+| [`docs/examples/`](docs/examples/) | 三个真实成片，含配置与实测数据 |

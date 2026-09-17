@@ -1,0 +1,22 @@
+{
+  "title": "把这个本地视频工作流介绍给新同事",
+  "narration_source": "user",
+  "note": "Rendered with no LLM key configured, so the narration came from the built-in rule writer — not from a model. Voice, render, subtitles and composition are real.",
+  "providers": {
+    "llm": "mock_llm",
+    "tts": "sapi",
+    "renderer": "advanced_html",
+    "subtitle": "srt"
+  },
+  "scenes": 4,
+  "requested_duration_sec": 30.0,
+  "actual_duration_sec": 28.1,
+  "deviation_pct": 6.3,
+  "render_seconds": 71.4,
+  "resolution": "1920x1080",
+  "fps": 30,
+  "verified_on": "2026-09-17",
+  "warnings": [
+    "forced template product_demo does not fit: template product_demo requires screen_capture, which this request does not have"
+  ]
+}

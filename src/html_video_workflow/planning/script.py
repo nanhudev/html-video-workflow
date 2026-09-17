@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ..sources.document import SourceDocument
 from ..templates.models import TemplateManifest, WritingPreset
-from ..utils.audio import estimate_speech_seconds
+from ..utils.audio import SCENE_TAIL_PAD_SEC, estimate_speech_seconds
 from ..utils.logging import get_logger
 from .presets import compose_system_prompt
 
@@ -259,7 +259,19 @@ _MIN_SCENE_SEC = 3.0
 _MAX_SCENE_SEC = 12.0
 #: Breathing room after the last syllable. A cut that lands on the final sound
 #: reads as rushed, and the pause is where the point lands.
-_BEAT_PADDING_SEC = 0.9
+#:
+#: This is deliberately *not* a local number. The composer pads every rendered
+#: segment by the same amount, so the two must be the same constant or the plan
+#: and the render disagree: the planner used to budget 0.9 while the composer
+#: added 0.35, which quietly cost 0.55s per scene and turned a 28s request into
+#: a 20.3s video.
+_BEAT_PADDING_SEC = SCENE_TAIL_PAD_SEC
+
+#: On-screen headline budget. Wider than a subtitle line because it is set in
+#: display type, but bounded so a paragraph cannot become a wall of text.
+_HEADLINE_MAX_CHARS = 28
+#: Shortest acceptable headline after snapping back to a clause boundary.
+_HEADLINE_MIN_CHARS = 8
 
 
 class ScriptBeat(BaseModel):
@@ -308,10 +320,20 @@ def _lang_key(language: str) -> str:
 
 
 def _chars_per_sec(language: str) -> float:
-    """Matches ``utils.audio.estimate_speech_seconds``: 5.2 CJK chars/s, ~13
-    latin chars/s. Using a different number here would make the storyboard
-    disagree with the audio stage about how long a scene lasts."""
-    return 13.0 if _lang_key(language) == "en" else 5.2
+    """The speaking rate to budget against, measured rather than assumed.
+
+    This used to be a literal 5.2, chosen to "match" the audio stage — but both
+    places held the same unverified number, so agreeing with each other meant
+    nothing. Real SAPI Chinese measures 3.35 chars/s (see
+    ``utils.audio.SAPI_CJK_CHARS_PER_SECOND``), and the old figure made every
+    estimate ~55% short: a 20s request came back at ~31s, which is exactly the
+    "narration does not match the pictures" complaint. Importing one measured
+    constant is what keeps the two stages honest.
+    """
+    from ..utils.audio import SAPI_CJK_CHARS_PER_SECOND, SAPI_LATIN_CHARS_PER_SECOND
+
+    return (SAPI_LATIN_CHARS_PER_SECOND if _lang_key(language) == "en"
+            else SAPI_CJK_CHARS_PER_SECOND)
 
 
 class ScriptPlanner:
@@ -346,7 +368,13 @@ class ScriptPlanner:
     ) -> VideoScript:
         warnings: list[str] = []
         if script_text and script_text.strip():
-            beats = self._from_user_script(script_text, language)
+            # The user wrote the words, so the packing budget is the template's
+            # own per-scene allowance — the one number that describes how much
+            # text a scene can carry in this template.
+            user_max = int((manifest.narration or {}).get("max_chars_per_scene") or 90)
+            beats = self._from_user_script(script_text, language,
+                                           max_chars=user_max,
+                                           target_duration_sec=target_duration_sec)
             generated_by = "user"
         else:
             beats = self._from_beats(topic, manifest, language, documents or [],
@@ -427,15 +455,33 @@ class ScriptPlanner:
             )
         return beats
 
-    def _from_user_script(self, script_text: str, language: str) -> list[ScriptBeat]:
+    def _from_user_script(self, script_text: str, language: str,
+                          max_chars: int | None = None,
+                          target_duration_sec: float | None = None) -> list[ScriptBeat]:
         blocks = [b.strip() for b in re.split(r"\n\s*\n", script_text) if b.strip()]
         if len(blocks) < 2:
             blocks = [s.strip() for s in re.split(r"(?<=[。！？.!?])\s*", script_text)
                       if len(s.strip()) > 8]
-        # Pack very short sentences so a 40-line script does not become 40 scenes.
+        # Paragraphs are scenes. Merge only what is too short to be one.
+        #
+        # This used to merge against a fixed 90 characters, then against the
+        # template's 130-char ceiling, and both quietly did the same damage: a
+        # five-paragraph Chinese script collapsed to two beats, which capped the
+        # finished video at two scenes' worth of seconds and forced the narration
+        # to be truncated to fit a length the scene count could never reach. The
+        # threshold is therefore the *shortest scene worth watching*, not the
+        # longest one that fits: below ~3 seconds of speech there is no time to
+        # read the frame, so those merge up. Everything else keeps the shape the
+        # author gave it.
+        #
+        # Duration is deliberately not an input here. The requested length is
+        # enforced once, in `_fit_duration`, which already reports both
+        # directions — reaching for it twice is how the two ended up fighting.
+        min_scene_chars = max(12, int(_MIN_SCENE_SEC * _chars_per_sec(language) * 0.8))
+        floor = max(min_scene_chars, min(int(max_chars or 90), min_scene_chars))
         packed: list[str] = []
         for block in blocks:
-            if packed and len(packed[-1]) + len(block) < 90:
+            if packed and len(packed[-1]) < floor:
                 packed[-1] = f"{packed[-1]} {block}"
             else:
                 packed.append(block)
@@ -532,39 +578,96 @@ class ScriptPlanner:
         cps = float(manifest.narration.get("chars_per_sec") or _chars_per_sec(language))
         max_chars = int(manifest.narration.get("max_chars_per_scene") or 130)
 
-        budget = max_chars
-        per_beat: float | None = None
-        if target and beats:
-            # Reserve the inter-beat pause before dividing, or the sum overshoots.
-            spendable = max(4.0, float(target) - _BEAT_PADDING_SEC * len(beats))
-            per_beat = spendable / len(beats)
-            budget = max(10, int(per_beat * cps))
-            if budget < max_chars:
-                warnings.append(
-                    f"narration trimmed to ~{budget} chars per scene to fit "
-                    f"{target:.0f}s; a longer duration or fewer scenes would "
-                    f"leave the text intact")
-
         for beat in beats:
             beat.narration = beat.narration.strip()
-            if len(beat.narration) > budget:
-                beat.narration = _truncate(beat.narration, budget)
-            if per_beat is not None:
-                # Measure with the *same* estimator the audio stage uses.
-                # Counting characters here instead made English narration ~14%
-                # long, because the canonical estimator ignores whitespace.
-                beat.narration = _trim_to_seconds(beat.narration, per_beat, cps)
+
+        # Trim only when the material is genuinely *longer* than the target.
+        #
+        # This is the second half of the "20s request, 32s video" bug, and the
+        # first fix overshot in the opposite direction: it derived a per-scene
+        # budget straight from `target / len(beats)` and applied it blindly, so a
+        # 45s request against 43s of material still chopped every paragraph —
+        # and then reported that the result "fills only ~33s of the requested
+        # 45s". Two warnings, one cause: the trim was computed from a quota
+        # instead of from a surplus. Asking for more time must never make the
+        # narration shorter.
+        #
+        # The scene floor is a real constraint too (a scene cannot be shorter
+        # than `_MIN_SCENE_SEC`), so the trimming is driven by the *surplus over
+        # what the request can hold*, not by a per-scene quota. Each scene
+        # carries one padding beat, so the target spendable on speech is the
+        # request minus that padding.
+        speech_target = max(0.0, float(target) - _BEAT_PADDING_SEC * len(beats)) if target else None
+
+        trimmed = False
+        if target and beats and speech_target is not None:
+            sung = sum(estimate_speech_seconds(b.narration, cps) for b in beats)
+            if sung > speech_target + 0.05:
+                # Only the surplus is taken, and never below the floor — a 43s
+                # script asked for 45s keeps every word.
+                #
+                # Note there is no *character* budget applied here. The earlier
+                # version fed `int(per_beat * cps)` to `_truncate` and then also
+                # passed the result through `_trim_to_seconds`; two budgets for
+                # one decision, and the character one fired first, so a paragraph
+                # that fit the seconds limit was shredded by a coarser cut and
+                # the video came out 10s short of its own target. Seconds are
+                # the currency the audio stage actually charges in — the
+                # template's `max_chars_per_scene` stays a writable-material
+                # limit enforced where text is authored, not a timing lever.
+                #
+                # The trim is *per scene*, not against a global average. An
+                # average gives every paragraph the same quota, so a scene that
+                # was already shorter than the mean gets cut while a longer one
+                # keeps its words — the wrong scenes lose text, and the ones that
+                # lose it do so for no reason. Each scene only gives up what it
+                # is itself over.
+                ratio = speech_target / sung if sung else 1.0
+                for beat in beats:
+                    spoken = estimate_speech_seconds(beat.narration, cps)
+                    allowance = max(_MIN_SCENE_SEC - _BEAT_PADDING_SEC,
+                                    spoken * ratio)
+                    if spoken <= allowance + 0.15:
+                        # A scene that is already close enough keeps its words.
+                        # Trimming to win back a fraction of a second turns a
+                        # finished sentence into a half-word ("……愿意交出"),
+                        # which is a far more visible defect than a video that
+                        # runs 4% long. Only a real overshoot is worth a cut.
+                        continue
+                    beat.narration = _trim_to_seconds(beat.narration, allowance, cps)
+                    trimmed = True
+                if trimmed:
+                    warnings.append(
+                        f"narration trimmed to fit {target:.0f}s across "
+                        f"{len(beats)} scene(s); a longer duration or fewer "
+                        f"scenes would leave the text intact")
+
+        for beat in beats:
             spoken = estimate_speech_seconds(beat.narration, cps)
             beat.duration_sec = round(
                 min(_MAX_SCENE_SEC,
                     max(_MIN_SCENE_SEC, spoken + _BEAT_PADDING_SEC)), 2)
 
+        # A single scene cannot exceed `_MAX_SCENE_SEC`, so a thin script asked
+        # for a long runtime is capped by the scene count, not by the writing.
+        # Report that in the same breath as the floor case, since both mean
+        # "this target is not reachable with this many scenes".
+        if target and beats and not trimmed:
+            ceiling = _MAX_SCENE_SEC * len(beats)
+            if float(target) > ceiling:
+                warnings.append(
+                    f"{len(beats)} scene(s) can hold at most ~{ceiling:.0f}s "
+                    f"(a scene is capped at {_MAX_SCENE_SEC:.0f}s), so the "
+                    f"{target:.0f}s target needs more material or more scenes")
+
         if target and beats:
             total = sum(beat.duration_sec for beat in beats)
             if total < float(target) * 0.9:
-                # Trimming can make a video shorter, never longer. A target the
-                # material cannot fill has to be *reported*, not quietly
-                # missed: padding the gap with held frames is just dead air.
+                # The material cannot reach the requested length. This is now a
+                # statement about the *script*, not about the trim: since
+                # trimming only ever fires on a surplus, a short result means
+                # the source genuinely had too little to say. Padding the gap
+                # with held frames is dead air, so it is reported instead.
                 warnings.append(
                     f"narration fills only ~{total:.0f}s of the requested "
                     f"{target:.0f}s; add material, more scenes or a shorter "
@@ -648,9 +751,32 @@ _BEAT_LAYOUT: dict[str, str] = {
 
 
 def _headline_from_text(text: str, index: int) -> str:
+    """The on-screen headline for a scene taken from a user's paragraph.
+
+    Cut on a clause boundary, never mid-phrase. This used to be a bare
+    ``head[:28]``, which put "……去往别人的" in 48pt type across the top of the
+    frame — a chopped word in the largest text on screen is the most visible
+    possible defect, and it is worse than a shorter headline.
+    """
     cleaned = re.sub(r"\s+", " ", text).strip()
-    head = re.split(r"[。！？.!?]", cleaned)[0]
-    return (head or cleaned)[:28] or f"第 {index} 段"
+    # Prefer a whole sentence; fall back to a whole clause.
+    head = re.split(r"[。！？.!?]", cleaned)[0].strip()
+    if not head:
+        head = cleaned
+    if len(head) <= _HEADLINE_MAX_CHARS:
+        return head or f"第 {index} 段"
+    # Over budget: end at the last clause boundary that still leaves a usable
+    # headline. The pivot itself is dropped — a display headline that ends on a
+    # comma looks like text that lost its second half, whereas ending on the
+    # words reads as a deliberate title.
+    window = head[:_HEADLINE_MAX_CHARS]
+    for pivot in ("，", ",", "、", "：", ":", " ", "—"):
+        cut = window.rfind(pivot)
+        if cut >= _HEADLINE_MIN_CHARS:
+            return window[:cut].strip()
+    # No boundary at all (one long run of CJK): a hard cut is the only option,
+    # but mark it so the reader sees an intentional ellipsis rather than a typo.
+    return window.rstrip() + "…"
 
 
 def _trim_to_seconds(text: str, seconds: float, cps: float) -> str:
@@ -660,20 +786,50 @@ def _trim_to_seconds(text: str, seconds: float, cps: float) -> str:
     linear in string length — it charges CJK and latin characters at different
     rates. Cutting ``len(text) * ratio`` lands either side of the budget
     depending on which script the narration happens to be in.
+
+    The boundary is then snapped *backwards* to a clause ending, but only when a
+    clause ending exists inside the budget. Handing the search result to
+    ``_truncate`` instead was a real regression: that helper falls back to the
+    first clause when nothing fits, so a 6.9s budget on a 41-character paragraph
+    came back as its first 15 characters (4.2s) — a 40% cut on a scene that was
+    already inside the limit, and the leftover seconds then triggered the
+    "fills only ~20s of the requested 30s" warning. One budget, one cut.
     """
     if estimate_speech_seconds(text, cps) <= seconds:
         return text
-    lo, hi = 1, len(text)
+    # Longest prefix that fits: keep the invariant "everything before `lo`
+    # fits, everything from `hi` on does not", and close the gap from above.
+    # The earlier version nudged `lo` *up* when a prefix overran, i.e. searched
+    # in the wrong direction, and only appeared to work because `_truncate` was
+    # quietly repairing the result afterwards.
+    lo, hi = 0, len(text)
     while lo < hi:
-        mid = (lo + hi) // 2
-        if estimate_speech_seconds(text[:mid], cps) > seconds:
-            lo = mid + 1
+        mid = (lo + hi + 1) // 2
+        if estimate_speech_seconds(text[:mid], cps) <= seconds:
+            lo = mid
         else:
-            hi = mid
-    return _truncate(text, lo)
+            hi = mid - 1
+    window = text[:lo]
+    # Snap to a clause ending, but never give up more than a quarter of the
+    # budget to do it. Chinese clauses are short and dense, so a strict
+    # "always end on a full stop" rule threw away 35% of a 6.6s scene; landing
+    # slightly long reads better than a scene that visibly lags its own timing.
+    for pivot in ("。", "！", "？", ". ", "，", ", "):
+        cut = window.rfind(pivot)
+        if cut >= lo * 0.75:
+            return window[: cut + len(pivot)].strip()
+    return window.strip()
 
 
 def _truncate(text: str, limit: int) -> str:
+    """Shorten to a sentence boundary, or refuse to shorten at all.
+
+    Cutting mid-clause leaves a fragment like "每…" that reads as a bug and
+    cannot be spoken. When the limit is too small to contain even the first
+    clause, the honest answer is the whole clause: the scene runs a little long
+    and the caller's duration check reports it, which is recoverable and
+    visible. A shredded sentence is neither.
+    """
     if len(text) <= limit:
         return text
     window = text[:limit]
@@ -681,7 +837,19 @@ def _truncate(text: str, limit: int) -> str:
         cut = window.rfind(pivot)
         if cut > limit * 0.55:
             return window[: cut + len(pivot)].strip()
-    return window.rstrip() + "…"
+    # No usable boundary inside the window: keep the first clause instead of
+    # emitting a fragment. `_first_clause` falls back to the whole text when the
+    # sentence has no terminator at all, so this can never lose everything.
+    return _first_clause(text, limit)
+
+
+def _first_clause(text: str, limit: int) -> str:
+    """The first complete clause, even when it exceeds `limit`."""
+    for pivot in ("。", "！", "？", ". ", "，", ", "):
+        cut = text.find(pivot)
+        if cut != -1:
+            return text[: cut + len(pivot)].strip()
+    return text.strip()
 
 
 def _fact_candidates(text: str) -> list[str]:

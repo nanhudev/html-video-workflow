@@ -1,0 +1,20 @@
+{
+  "title": "为什么本地 AI 很重要",
+  "narration_source": "user",
+  "note": "The narration was written by hand and passed in via request.script, because this machine has no LLM key. The pipeline reports narration_source=\"user\" and never claims a model wrote it. Voice, render, subtitles and composition are all real.",
+  "providers": {
+    "llm": "mock_llm (not attached to the writer)",
+    "tts": "sapi",
+    "renderer": "advanced_html",
+    "subtitle": "srt"
+  },
+  "scenes": 4,
+  "requested_duration_sec": 28,
+  "actual_duration_sec": 28.4,
+  "deviation_pct": 1.4,
+  "render_seconds": 73.3,
+  "resolution": "1920x1080",
+  "fps": 30,
+  "verified_on": "2026-09-17",
+  "warnings": []
+}
