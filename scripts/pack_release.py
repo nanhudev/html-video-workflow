@@ -131,6 +131,12 @@ def run(command: list[str], cwd: Path | None = None) -> None:
         # stderr is where PyInstaller puts its real reason. It used to be
         # discarded entirely.
         print(result.stderr, end="", flush=True)
+    # Printed on success too. A step that reports only its failures cannot
+    # answer "did it run at all?", which is the question this build has twice
+    # needed answered: PyInstaller printed "Build complete!" on the runner and
+    # the step still exited 1, with nothing afterwards to say whether the
+    # archive stage was even reached.
+    print(f"[exit {result.returncode}] {Path(command[0]).name}", flush=True)
     if result.returncode != 0:
         raise SystemExit(
             f"命令失败（退出码 {result.returncode}）：{printable}")
@@ -408,13 +414,24 @@ def main(argv: list[str] | None = None) -> int:
     version_str = version()
     print(f"构建 html-video {version_str} → {out_dir}")
 
+    # Stage markers, because "the step exited 1 and printed nothing" is a
+    # diagnosis with no location in it. Each marker is flushed before the stage
+    # runs, so a silent death is bracketed by the last thing that started.
+    def stage(name: str) -> None:
+        print(f"[pack] {name}", flush=True)
+
+    stage("build_frontend")
     build_frontend(args.skip_frontend)
+    stage("stage_frontend")
     stage_frontend()
     if args.skip_exe:
         return 0
 
+    stage("build_exe")
     app_dir = build_exe(out_dir)
+    stage("bundle_tools")
     bundle_tools(app_dir, args.ffmpeg_bin or None, allow_missing=args.allow_no_tools)
+    stage("make_zip")
     archive = make_zip(app_dir, out_dir, version_str)
 
     size_mb = archive.stat().st_size / 1048576
@@ -424,4 +441,14 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        code = main()
+    except BaseException as exc:  # noqa: BLE001 - a build must say why it stopped
+        # Not to replace the traceback — to guarantee that *something* is
+        # written even if the interpreter is on its way out. On the runner a
+        # build has exited 1 after printing its last successful line and
+        # nothing else, which is indistinguishable from being killed.
+        print(f"[pack] 未捕获异常：{type(exc).__name__}: {exc}",
+              file=sys.stderr, flush=True)
+        raise
+    sys.exit(code)
