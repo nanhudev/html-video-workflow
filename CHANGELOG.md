@@ -6,6 +6,8 @@ versioning.
 
 ## [Unreleased]
 
+## [0.5.0]
+
 ### Fixed
 
 - **Video length now matches the requested duration.** A 28-second request
