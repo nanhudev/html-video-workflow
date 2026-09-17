@@ -168,6 +168,14 @@ html-video serve                             # 同一个进程，按 API 描述�
 html-video-mcp                               # JSON-RPC over stdio，给 Agent 用
 ```
 
+`html-video` 是 pip 装出来的控制台脚本。没有装过、或者装在别的虚拟环境里，
+用模块方式调用是同一个程序：
+
+```bash
+python -m html_video_workflow.cli doctor
+python -m html_video_workflow.cli generate "为什么本地 AI 很重要"
+```
+
 常用参数：
 
 ```bash

@@ -7,6 +7,10 @@ outputs/
 *.wav
 .env
 
+# Demo media is documentation, not build output — the README links to it, so it
+# has to be in the repository or the link is a 404.
+!docs/assets/demo.mp4
+
 # Node / Studio frontend dependencies and build output.
 node_modules/
 dist/
@@ -19,6 +23,13 @@ src/html_video_workflow/studio_dist/
 *.egg-info/
 *.tsbuildinfo
 vite.config.ts.timestamp-*
+
+# Output of the end-to-end checks. Written next to the repository by
+# `scripts/e2e_one_click.py` so a red build can be read without logs; they are
+# run artefacts, not source.
+cli-result-*.json
+cli-stderr-*.txt
+e2e-out*/
 
 # Python test tooling caches.
 .pytest_cache/

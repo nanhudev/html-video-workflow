@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+import shutil
 import subprocess
 import sys
 import traceback
@@ -54,13 +55,60 @@ def remember(context: str, state: str, description: str) -> None:
 
 def run(args: list[str], timeout: int = 900) -> subprocess.CompletedProcess:
     print("$", " ".join(args), flush=True)
-    return subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+    # Subprocess output is read as UTF-8 with a relaxed failure mode rather than
+    # as the console's locale encoding. ffmpeg and the providers emit UTF-8, and
+    # a single Chinese character inside an error message would otherwise raise
+    # UnicodeDecodeError *while reporting*, turning a diagnosable failure into an
+    # unexplained one. The binaries are not what this check is about.
+    return subprocess.run(args, capture_output=True, text=True,
+                          encoding="utf-8", errors="replace", timeout=timeout)
+
+
+def resolve_cli() -> list[str]:
+    """How to launch ``html-video`` on this machine, decided once.
+
+    The documented command is the installed console script, so that is what a CI
+    runner should be exercising. A source checkout has no installed script at
+    all, though — and worse, a machine can hold a console script that points at
+    a virtualenv whose ``site-packages`` has since been hollowed out, which is
+    exactly how this check once reported nothing but "could not run the CLI:
+    FileNotFoundError" while the pipeline itself was fine.
+
+    So: take the console script when it actually runs, and fall back to module
+    execution (which needs nothing but an importable package) when it does not.
+    """
+    script = shutil.which("html-video")
+    if script:
+        probe = subprocess.run([script, "--help"], capture_output=True,
+                               text=True, encoding="utf-8", errors="replace",
+                               timeout=300)
+        if probe.returncode == 0:
+            print(f"[cli] using console script: {script}", flush=True)
+            return [script]
+        tail = (probe.stderr or "").strip()[-120:] or f"exit {probe.returncode}"
+        print(f"[cli] console script {script} is unusable ({tail}); "
+              "falling back to module execution", flush=True)
+    print(f"[cli] using module execution: {sys.executable} -m "
+          "html_video_workflow.cli", flush=True)
+    return [sys.executable, "-m", "html_video_workflow.cli"]
+
+
+#: Resolved lazily so importing this module never launches anything.
+_CLI: list[str] | None = None
+
+
+def cli_command() -> list[str]:
+    """The argv prefix that launches the CLI here."""
+    global _CLI
+    if _CLI is None:
+        _CLI = resolve_cli()
+    return _CLI
 
 
 def ready_providers() -> str:
     """Which providers the runner can actually use, in one short line."""
     try:
-        proc = run(["html-video", "providers", "--json"], timeout=300)
+        proc = run([*cli_command(), "providers", "--json"], timeout=300)
         rows = json.loads(proc.stdout or "[]")
     except Exception as exc:  # noqa: BLE001 - a finding, not a crash
         return f"providers unreadable: {type(exc).__name__}: {exc}"
@@ -77,7 +125,7 @@ def attempt(label: str, extra: list[str] | None = None) -> dict:
     out = pathlib.Path(f"cli-result-{label}.json")
     err = pathlib.Path(f"cli-stderr-{label}.txt")
 
-    args = ["html-video", "generate", PROMPT, *BASE_ARGS, *extra]
+    args = [*cli_command(), "generate", PROMPT, *BASE_ARGS, *extra]
     try:
         proc = run(args)
     except Exception as exc:  # noqa: BLE001
@@ -126,7 +174,7 @@ def attempt(label: str, extra: list[str] | None = None) -> dict:
 
 def dry_run_diagnosis() -> None:
     """Plan only. Shows which providers the router picked, or refused to pick."""
-    args = ["html-video", "generate", PROMPT, *BASE_ARGS, "--dry-run"]
+    args = [*cli_command(), "generate", PROMPT, *BASE_ARGS, "--dry-run"]
     try:
         proc = run(args, timeout=300)
         payload = json.loads((proc.stdout or "").strip() or "{}")

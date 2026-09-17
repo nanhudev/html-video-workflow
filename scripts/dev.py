@@ -70,11 +70,60 @@ def _run(cmd: list[str], cwd: Path | None = None, check: bool = True) -> int:
     return result.returncode
 
 
-def _require_venv() -> None:
-    if not PY.exists():
-        raise SystemExit(
-            f"No interpreter at {PY}\nRun: python scripts/dev.py setup"
-        )
+def _can_import(candidate: Path) -> bool:
+    """Whether `candidate` is an interpreter that actually has this package.
+
+    Existence is not usability. An app-home virtualenv can be left behind
+    half-uninstalled — the interpreter and even the console script still sit on
+    disk while ``site-packages`` no longer holds the package — and then every
+    command below dies with a raw ``ModuleNotFoundError`` traceback that blames
+    the project for what is really local environment damage. Probing costs one
+    import and turns that into a clean fallback.
+    """
+    if not candidate.exists():
+        return False
+    probe = subprocess.run(
+        [str(candidate), "-c", "import html_video_workflow"],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        env=_env(),
+    )
+    return probe.returncode == 0
+
+
+def _python() -> str:
+    """The interpreter to develop with: the app's own, else whoever runs this."""
+    if not hasattr(_python, "_cached"):
+        if _can_import(PY):
+            cached = str(PY)
+        else:
+            if PY.exists():
+                print(f"(note) {PY} cannot import html_video_workflow — "
+                      f"using {sys.executable} instead")
+            if not _can_import(Path(sys.executable)):
+                raise SystemExit(
+                    f"{sys.executable} cannot import html_video_workflow "
+                    "either.\nRun: python scripts/dev.py setup"
+                )
+            cached = sys.executable
+        setattr(_python, "_cached", cached)
+    return getattr(_python, "_cached")
+
+
+def _cli() -> list[str]:
+    """How to launch the CLI: the installed console script when it works.
+
+    A console script is what a user actually runs, so it is worth exercising
+    when one is installed *in a working environment*. Otherwise fall back to
+    module execution, which needs nothing but an importable package — see
+    ``src/html_video_workflow/cli/__main__.py``.
+    """
+    if not hasattr(_cli, "_cached"):
+        if PY.exists() and _can_import(PY) and CLI.exists():
+            cached = [str(CLI)]
+        else:
+            cached = [_python(), "-m", "html_video_workflow.cli"]
+        setattr(_cli, "_cached", cached)
+    return getattr(_cli, "_cached")
 
 
 def _npm() -> str:
@@ -104,13 +153,11 @@ def cmd_setup(args: argparse.Namespace) -> int:
 
 
 def cmd_doctor(args: argparse.Namespace) -> int:
-    _require_venv()
-    return _run([str(CLI), "doctor"])
+    return _run([*_cli(), "doctor"])
 
 
 def cmd_test(args: argparse.Namespace) -> int:
-    _require_venv()
-    rc = _run([str(PY), "-m", "pytest", "tests", "-q"])
+    rc = _run([_python(), "-m", "pytest", "tests", "-q"])
     if STUDIO.exists() and (STUDIO / "node_modules").exists():
         rc |= _run([_npm(), "run", "typecheck"], cwd=STUDIO, check=False)
     else:
@@ -119,8 +166,7 @@ def cmd_test(args: argparse.Namespace) -> int:
 
 
 def cmd_serve(args: argparse.Namespace) -> int:
-    _require_venv()
-    return _run([str(CLI), "serve", "--host", args.host, "--port", str(args.port)])
+    return _run([*_cli(), "serve", "--host", args.host, "--port", str(args.port)])
 
 
 def cmd_studio(args: argparse.Namespace) -> int:
@@ -131,8 +177,7 @@ def cmd_studio(args: argparse.Namespace) -> int:
 
 
 def cmd_render(args: argparse.Namespace) -> int:
-    _require_venv()
-    argv = [str(CLI), "create", args.prompt, "--preset", args.preset]
+    argv = [*_cli(), "create", args.prompt, "--preset", args.preset]
     if args.render:
         argv.append("--render")
     return _run(argv)
